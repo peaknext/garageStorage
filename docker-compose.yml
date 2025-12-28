@@ -1,0 +1,135 @@
+# Garage Storage Service - Docker Compose Configuration
+# PostgreSQL uses existing local instance (not in Docker)
+
+services:
+  # ============================================
+  # Garage - S3 Compatible Object Storage
+  # ============================================
+  garage:
+    image: dxflrs/garage:v2.1.0
+    container_name: garage-storage
+    restart: unless-stopped
+    ports:
+      - "3900:3900"  # S3 API
+      - "3901:3901"  # RPC (internal)
+      - "3902:3902"  # Web serving
+      - "3903:3903"  # Admin API
+    volumes:
+      - ./garage/garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    environment:
+      - RUST_LOG=garage=info
+    networks:
+      - storage-network
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ============================================
+  # Garage WebUI (Optional)
+  # ============================================
+  garage-webui:
+    image: khairul169/garage-webui:latest
+    container_name: garage-webui
+    restart: unless-stopped
+    ports:
+      - "3909:3909"
+    environment:
+      - API_BASE_URL=http://garage:3903
+      - S3_ENDPOINT_URL=http://garage:3900
+      - ADMIN_TOKEN=YWRtaW50b2tlbjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkw
+    volumes:
+      - ./garage/garage.toml:/etc/garage.toml:ro
+    depends_on:
+      garage:
+        condition: service_healthy
+    networks:
+      - storage-network
+
+  # ============================================
+  # Redis Cache
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: garage-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+    volumes:
+      - redis-data:/data
+    networks:
+      - storage-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # Storage API Service (NestJS)
+  # ============================================
+  storage-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: storage-api
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+    environment:
+      - NODE_ENV=production
+      - PORT=4001
+      - DATABASE_URL=postgresql://postgres:5432@host.docker.internal:5432/garageStorage
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_password}@redis:6379
+      - GARAGE_ENDPOINT=http://garage:3900
+      - GARAGE_PUBLIC_ENDPOINT=http://localhost:3900
+      - GARAGE_ADMIN_ENDPOINT=http://garage:3903
+      - GARAGE_ADMIN_TOKEN=YWRtaW50b2tlbjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkw
+      - GARAGE_REGION=garage
+      - GARAGE_ACCESS_KEY=${GARAGE_ACCESS_KEY}
+      - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=7d
+      - API_BASE_URL=http://localhost:4001
+    depends_on:
+      redis:
+        condition: service_healthy
+      garage:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - storage-network
+
+  # ============================================
+  # Admin Frontend (Next.js)
+  # ============================================
+  admin-ui:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: storage-admin-ui
+    restart: unless-stopped
+    ports:
+      - "4000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:4001/api/v1
+      - NEXT_PUBLIC_GARAGE_ENDPOINT=http://localhost:3900
+    depends_on:
+      - storage-api
+    networks:
+      - storage-network
+
+volumes:
+  garage-meta:
+  garage-data:
+  redis-data:
+
+networks:
+  storage-network:
+    driver: bridge

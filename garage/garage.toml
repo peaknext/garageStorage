@@ -1,0 +1,61 @@
+# ===========================================
+# Garage Configuration for Storage Service
+# ===========================================
+
+# Metadata directory (recommend SSD)
+metadata_dir = "/var/lib/garage/meta"
+
+# Data directory (main storage)
+data_dir = "/var/lib/garage/data"
+
+# Database engine: sqlite (testing) or lmdb (production)
+db_engine = "lmdb"
+
+# Auto snapshot metadata every 6 hours
+metadata_auto_snapshot_interval = "6h"
+
+# Replication factor (1 for single node, 3 for cluster)
+replication_factor = 1
+
+# Compression level (0-9, 2 is good balance)
+compression_level = 2
+
+# Block size for chunking large files
+block_size = "1M"
+
+# ===========================================
+# RPC Configuration
+# ===========================================
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+# RPC secret (generate with: openssl rand -hex 32)
+rpc_secret = "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
+
+# ===========================================
+# S3 API Configuration
+# ===========================================
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "[::]:3900"
+root_domain = ".s3.storage.local"
+
+# ===========================================
+# S3 Web Static Hosting
+# ===========================================
+[s3_web]
+bind_addr = "[::]:3902"
+root_domain = ".web.storage.local"
+index = "index.html"
+
+# ===========================================
+# Admin API Configuration
+# ===========================================
+[admin]
+api_bind_addr = "[::]:3903"
+
+# Admin token (generate with: openssl rand -base64 32)
+admin_token = "YWRtaW50b2tlbjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkw"
+
+# Metrics token for monitoring
+metrics_token = "bWV0cmljc3Rva2VuMTIzNDU2Nzg5MGFiY2RlZjEyMzQ1Njc4OTA="

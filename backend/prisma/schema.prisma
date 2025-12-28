@@ -1,0 +1,427 @@
+// Garage Storage Service - Prisma Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================
+// Application (Tenant) Model
+// ===========================================
+model Application {
+  id             String    @id @default(uuid())
+  name           String
+  slug           String    @unique
+  description    String?
+  apiKeyHash     String    @map("api_key_hash")
+  webhookUrl     String?   @map("webhook_url")
+  allowedOrigins String[]  @map("allowed_origins")
+  status         AppStatus @default(ACTIVE)
+
+  // Quota settings
+  maxStorageBytes  BigInt @default(10737418240) @map("max_storage_bytes") // 10GB default
+  usedStorageBytes BigInt @default(0) @map("used_storage_bytes")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  buckets         Bucket[]
+  accessLogs      AccessLog[]
+  webhooks        Webhook[]
+  storagePolicies StoragePolicy[]
+  quotaAlert      QuotaAlert?
+  tags            Tag[]
+
+  @@map("applications")
+}
+
+enum AppStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+// ===========================================
+// Bucket Model
+// ===========================================
+model Bucket {
+  id             String @id @default(uuid())
+  name           String
+  garageBucketId String @unique @map("garage_bucket_id")
+
+  // Quota (optional per-bucket limit)
+  quotaBytes BigInt? @map("quota_bytes")
+  usedBytes  BigInt  @default(0) @map("used_bytes")
+
+  // Settings
+  isPublic          Boolean @default(false) @map("is_public")
+  corsEnabled       Boolean @default(true) @map("cors_enabled")
+  versioningEnabled Boolean @default(false) @map("versioning_enabled")
+
+  // Lifecycle rules (JSON)
+  lifecycleRules Json? @map("lifecycle_rules")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  applicationId   String          @map("app_id")
+  application     Application     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  files           File[]
+  storagePolicies StoragePolicy[]
+  virtualFolders  VirtualFolder[]
+
+  @@unique([applicationId, name])
+  @@map("buckets")
+}
+
+// ===========================================
+// File Model
+// ===========================================
+model File {
+  id           String  @id @default(uuid())
+  key          String // S3 object key
+  originalName String  @map("original_name")
+  mimeType     String  @map("mime_type")
+  sizeBytes    BigInt  @map("size_bytes")
+  checksum     String? // MD5 or SHA256
+  etag         String? // S3 ETag
+
+  // Metadata (flexible JSON)
+  metadata Json?
+
+  // Access control
+  isPublic   Boolean @default(false) @map("is_public")
+  uploadedBy String? @map("uploaded_by") // External user ID
+
+  // Statistics
+  downloadCount  Int       @default(0) @map("download_count")
+  lastAccessedAt DateTime? @map("last_accessed_at")
+
+  // Thumbnail fields
+  thumbnailKey    String?         @map("thumbnail_key")
+  thumbnailStatus ThumbnailStatus @default(NONE) @map("thumbnail_status")
+  imageWidth      Int?            @map("image_width")
+  imageHeight     Int?            @map("image_height")
+
+  // Full-text search
+  searchVector String? @map("search_vector")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  bucketId String       @map("bucket_id")
+  bucket   Bucket       @relation(fields: [bucketId], references: [id], onDelete: Cascade)
+  shares   FileShare[]
+  tags     FileTag[]
+  folders  FileFolder[]
+
+  @@unique([bucketId, key])
+  @@index([bucketId])
+  @@index([mimeType])
+  @@index([uploadedBy])
+  @@map("files")
+}
+
+enum ThumbnailStatus {
+  NONE
+  PENDING
+  GENERATED
+  FAILED
+  NOT_APPLICABLE
+}
+
+// ===========================================
+// File Share Model (Shareable Links)
+// ===========================================
+model FileShare {
+  id    String @id @default(uuid())
+  token String @unique @default(uuid())
+
+  // Expiration
+  expiresAt DateTime? @map("expires_at")
+
+  // Download limits
+  maxDownloads  Int? @map("max_downloads")
+  downloadCount Int  @default(0) @map("download_count")
+
+  // Optional password protection
+  passwordHash String? @map("password_hash")
+
+  // Settings
+  allowPreview Boolean @default(true) @map("allow_preview")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  fileId String @map("file_id")
+  file   File   @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@map("file_shares")
+}
+
+// ===========================================
+// Admin Users Model
+// ===========================================
+model AdminUser {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  name         String
+  role         AdminRole @default(VIEWER)
+
+  lastLoginAt DateTime? @map("last_login_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  auditLogs AuditLog[]
+
+  @@map("admin_users")
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+  VIEWER
+}
+
+// ===========================================
+// Access Logs Model
+// ===========================================
+model AccessLog {
+  id           String  @id @default(uuid())
+  action       String // UPLOAD, DOWNLOAD, DELETE, etc.
+  resourceType String  @map("resource_type") // FILE, BUCKET, etc.
+  resourceId   String? @map("resource_id")
+
+  // Request info
+  ipAddress String? @map("ip_address")
+  userAgent String? @map("user_agent")
+
+  // Additional metadata
+  metadata Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  applicationId String      @map("app_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("access_logs")
+}
+
+// ===========================================
+// Webhooks Model
+// ===========================================
+model Webhook {
+  id       String   @id @default(uuid())
+  url      String
+  events   String[] // Array of event types
+  secret   String // For signature verification
+  isActive Boolean  @default(true) @map("is_active")
+
+  // Stats
+  lastTriggeredAt DateTime? @map("last_triggered_at")
+  failureCount    Int       @default(0) @map("failure_count")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  applicationId String      @map("app_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("webhooks")
+}
+
+// ===========================================
+// Audit Logging Model
+// ===========================================
+model AuditLog {
+  id            String      @id @default(uuid())
+  actorType     ActorType
+  actorId       String?     @map("actor_id")
+  actorEmail    String?     @map("actor_email")
+  action        String
+  resourceType  String      @map("resource_type")
+  resourceId    String?     @map("resource_id")
+  resourceName  String?     @map("resource_name")
+  ipAddress     String?     @map("ip_address")
+  userAgent     String?     @map("user_agent")
+  requestMethod String?     @map("request_method")
+  requestPath   String?     @map("request_path")
+  previousValue Json?       @map("previous_value")
+  newValue      Json?       @map("new_value")
+  status        AuditStatus @default(SUCCESS)
+  errorMessage  String?     @map("error_message")
+  metadata      Json?
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  // Relations
+  adminUserId String?    @map("admin_user_id")
+  adminUser   AdminUser? @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorType, actorId])
+  @@index([action])
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+enum ActorType {
+  ADMIN_USER
+  APPLICATION
+  SYSTEM
+}
+
+enum AuditStatus {
+  SUCCESS
+  FAILURE
+}
+
+// ===========================================
+// Storage Policies Model
+// ===========================================
+model StoragePolicy {
+  id              String       @id @default(uuid())
+  name            String
+  description     String?
+  scope           PolicyScope  @default(GLOBAL)
+  policyType      PolicyType
+  rules           Json?
+  retentionDays   Int?         @map("retention_days")
+  deleteAfterDays Int?         @map("delete_after_days")
+  schedule        String?
+  lastRunAt       DateTime?    @map("last_run_at")
+  nextRunAt       DateTime?    @map("next_run_at")
+  isActive        Boolean      @default(true) @map("is_active")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  applicationId String?      @map("app_id")
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  bucketId      String?      @map("bucket_id")
+  bucket        Bucket?      @relation(fields: [bucketId], references: [id], onDelete: Cascade)
+
+  @@index([isActive, nextRunAt])
+  @@map("storage_policies")
+}
+
+enum PolicyScope {
+  GLOBAL
+  APPLICATION
+  BUCKET
+}
+
+enum PolicyType {
+  RETENTION
+  AUTO_DELETE
+  SIZE_LIMIT
+  CLEANUP_TEMP
+}
+
+// ===========================================
+// Quota Alerts Model
+// ===========================================
+model QuotaAlert {
+  id                String     @id @default(uuid())
+  warningThreshold  Int        @default(75) @map("warning_threshold")
+  criticalThreshold Int        @default(90) @map("critical_threshold")
+  notifyEmail       String[]   @map("notify_email")
+  notifyWebhook     Boolean    @default(true) @map("notify_webhook")
+  cooldownMinutes   Int        @default(60) @map("cooldown_minutes")
+  lastWarningAt     DateTime?  @map("last_warning_at")
+  lastCriticalAt    DateTime?  @map("last_critical_at")
+  isActive          Boolean    @default(true) @map("is_active")
+  currentLevel      AlertLevel @default(NORMAL) @map("current_level")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  applicationId String      @unique @map("app_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("quota_alerts")
+}
+
+enum AlertLevel {
+  NORMAL
+  WARNING
+  CRITICAL
+}
+
+// ===========================================
+// Tags Model
+// ===========================================
+model Tag {
+  id        String   @id @default(uuid())
+  name      String
+  color     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  applicationId String      @map("app_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  files         FileTag[]
+
+  @@unique([applicationId, name])
+  @@map("tags")
+}
+
+model FileTag {
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  fileId String @map("file_id")
+  tagId  String @map("tag_id")
+  file   File   @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([fileId, tagId])
+  @@map("file_tags")
+}
+
+// ===========================================
+// Virtual Folders Model
+// ===========================================
+model VirtualFolder {
+  id        String   @id @default(uuid())
+  name      String
+  path      String // Materialized path: /parent/child/
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  parentId String?         @map("parent_id")
+  parent   VirtualFolder?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children VirtualFolder[] @relation("FolderHierarchy")
+  bucketId String          @map("bucket_id")
+  bucket   Bucket          @relation(fields: [bucketId], references: [id], onDelete: Cascade)
+  files    FileFolder[]
+
+  @@unique([bucketId, path])
+  @@index([bucketId, parentId])
+  @@map("virtual_folders")
+}
+
+model FileFolder {
+  // Relations
+  fileId   String        @map("file_id")
+  folderId String        @map("folder_id")
+  file     File          @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  folder   VirtualFolder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  @@id([fileId, folderId])
+  @@map("file_folders")
+}
