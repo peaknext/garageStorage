@@ -9,7 +9,7 @@ A centralized file storage service using Garage (S3-Compatible Object Storage) f
 ## Tech Stack
 
 - **Backend**: NestJS + TypeScript, PostgreSQL (Prisma ORM), Redis cache, Garage S3 storage
-- **Frontend**: Next.js 14 (App Router), Tailwind CSS + shadcn/ui, TanStack Query, Axios
+- **Frontend**: Next.js 14 (App Router), Tailwind CSS + shadcn/ui, TanStack Query, Axios, Zustand (state), Recharts (analytics)
 - **Infrastructure**: Docker Compose, Garage v2.1.0, PostgreSQL (local, not containerized)
 - **Processing**: Sharp (image thumbnails), Bull (background jobs), @nestjs/schedule (cron), EventEmitter (async events)
 
@@ -54,6 +54,15 @@ npx prisma generate                           # Regenerate Prisma client
 npx prisma studio                             # Open database GUI
 npx prisma db seed                            # Run seed script
 ```
+
+## Initial Setup
+
+1. Copy `.env.example` to `.env` and configure values
+2. Create Garage API key: `docker exec garage-storage /garage key create storage-api-key`
+3. Copy the generated `GARAGE_ACCESS_KEY` and `GARAGE_SECRET_KEY` to `.env`
+4. Run migrations: `cd backend && npx prisma migrate dev`
+5. Seed database: `npx prisma db seed`
+6. Start services: `docker compose up -d --build`
 
 ## Architecture
 
@@ -118,6 +127,10 @@ User Upload → FilesService → Bull Queue (thumbnail) → ThumbnailProcessor �
 | `tags` | File tagging system |
 | `folders` | Virtual folder hierarchy |
 | `processing` | Thumbnail generation, file previews |
+| `analytics` | Usage statistics and charts data |
+
+### Key Prisma Enums (import from `@prisma/client`)
+`AppStatus`, `AdminRole`, `ThumbnailStatus`, `ActorType`, `AuditStatus`, `PolicyScope`, `PolicyType`, `AlertLevel`
 
 ### Key Files
 - [s3.service.ts](backend/src/services/s3/s3.service.ts) - Dual S3 client with presigned URL generation
