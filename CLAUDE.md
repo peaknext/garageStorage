@@ -528,3 +528,145 @@ After implementing, test the complete user flow:
 2. Perform the action
 3. Verify the result appears correctly
 4. Check related features still work (e.g., after adding filters, verify folder navigation still shows files)
+
+## Lessons Learned (Session 2025-12-30)
+
+### Docker Cache Issues with Backend Changes
+
+When backend routes return 404 but the code looks correct, **the Docker container may be using cached code**:
+
+```bash
+# Force rebuild without cache when routes aren't updating
+docker compose build --no-cache storage-api
+docker compose up -d storage-api
+```
+
+This commonly happens when:
+- Adding new controllers or routes
+- Modifying module registrations
+- Changes to route paths
+
+### Orphan Detection Must Exclude Soft-Deleted Files
+
+When implementing soft delete (recycle bin), **update orphan detection to exclude soft-deleted files**:
+
+```typescript
+// In orphan.service.ts - get active files only
+const dbFiles = await this.prisma.file.findMany({
+  where: { bucketId: bucket.id, deletedAt: null }, // Exclude soft-deleted
+});
+
+// Get soft-deleted keys separately to exclude from S3 orphan detection
+const softDeletedFiles = await this.prisma.file.findMany({
+  where: { bucketId: bucket.id, deletedAt: { not: null } },
+  select: { key: true },
+});
+const softDeletedKeys = new Set(softDeletedFiles.map((f) => f.key));
+
+// When scanning S3, skip soft-deleted file keys
+if (softDeletedKeys.has(key)) continue;
+```
+
+Without this, soft-deleted files (still in S3 but marked deleted in DB) appear as orphans.
+
+### API Response Structure: Watch for Nested `data.data`
+
+Many endpoints return `{ data: [...], meta: {...} }`. When fetching with Axios:
+
+```typescript
+// BAD: Assumes response.data is the array directly
+const { data } = await apiClient.get('/admin/applications');
+return data; // This is { data: [...], meta: {...} }, not the array!
+
+// GOOD: Extract the nested data property
+const { data } = await apiClient.get<{ data: Application[] }>('/admin/applications');
+return data.data; // Now we have the array
+```
+
+**Symptom**: `TypeError: xxx.map is not a function` - you're trying to map an object, not an array.
+
+### Search Input Focus Loss: Use Local State + Debounce
+
+When a search input triggers re-renders on every keystroke (via parent state update), the input loses focus. Fix with **local state + debounced sync**:
+
+```typescript
+// Local state for immediate updates (no re-render)
+const [localSearch, setLocalSearch] = useState(filters?.search || '');
+const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+// Sync local state when external filters change
+useEffect(() => {
+  setLocalSearch(filters?.search || '');
+}, [filters?.search]);
+
+// Debounce updates to parent
+const handleSearchChange = (value: string) => {
+  setLocalSearch(value); // Update immediately (no parent re-render)
+
+  if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+  searchTimeoutRef.current = setTimeout(() => {
+    onFiltersChange({ ...filters, search: value }); // Update parent after delay
+  }, 300);
+};
+
+// Use localSearch for input value
+<Input value={localSearch} onChange={(e) => handleSearchChange(e.target.value)} />
+```
+
+### Display Counts: Use Total, Not Page Length
+
+When displaying counts with pagination, **use the total from API meta, not the array length**:
+
+```typescript
+// BAD: Shows items on current page
+<CardDescription>{files?.length || 0} files in this bucket</CardDescription>
+
+// GOOD: Shows total across all pages
+<CardDescription>{totalFiles || 0} files in this bucket</CardDescription>
+```
+
+### Pagination with Many Pages: Ellipsis + Jump-to-Page
+
+For large datasets, show contextual page numbers with ellipsis:
+
+```
+Page 1:    [1] [2] [3] [4] [5] ... [100]
+Page 50:   [1] ... [48] [49] [50] [51] [52] ... [100]
+Page 100:  [1] ... [96] [97] [98] [99] [100]
+```
+
+Add a "Go to page" input for direct navigation when `totalPages > 5`:
+
+```typescript
+{totalPages > 5 && (
+  <div className="flex items-center gap-2">
+    <span>Go to</span>
+    <Input
+      type="number"
+      min={1}
+      max={totalPages}
+      value={jumpToPage}
+      onChange={(e) => setJumpToPage(e.target.value)}
+      onKeyDown={(e) => e.key === 'Enter' && handleJump()}
+    />
+    <Button onClick={handleJump}>Go</Button>
+  </div>
+)}
+```
+
+### Query String Construction: Check for Missing `?`
+
+When building URLs with optional parameters, ensure the query string starts correctly:
+
+```typescript
+// BAD: Missing ? when no previous params
+`/admin/recycle-bin?${selectedAppId ? `applicationId=${selectedAppId}&` : ''}limit=100`
+// Result when no app selected: "/admin/recycle-bin?limit=100" ✓
+// BUT if applicationId is set: "/admin/recycle-bin?applicationId=xxx&limit=100" ✓
+
+// This pattern works but be careful with:
+const params = new URLSearchParams();
+if (selectedAppId) params.append('applicationId', selectedAppId);
+params.append('limit', '100');
+const url = `/admin/recycle-bin?${params.toString()}`;
+```
