@@ -57,6 +57,10 @@ export class AdminFilesController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'search', required: false, type: String })
   @ApiQuery({ name: 'mimeType', required: false, type: String })
+  @ApiQuery({ name: 'dateFrom', required: false, type: String, description: 'ISO date string' })
+  @ApiQuery({ name: 'dateTo', required: false, type: String, description: 'ISO date string' })
+  @ApiQuery({ name: 'sizeMin', required: false, type: Number, description: 'Min file size in bytes' })
+  @ApiQuery({ name: 'sizeMax', required: false, type: Number, description: 'Max file size in bytes' })
   @ApiQuery({ name: 'sort', required: false, type: String })
   @ApiQuery({ name: 'order', required: false, enum: ['asc', 'desc'] })
   async listFiles(
@@ -65,6 +69,10 @@ export class AdminFilesController {
     @Query('limit') limit?: string,
     @Query('search') search?: string,
     @Query('mimeType') mimeType?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('sizeMin') sizeMin?: string,
+    @Query('sizeMax') sizeMax?: string,
     @Query('sort') sort?: string,
     @Query('order') order?: 'asc' | 'desc',
   ) {
@@ -75,6 +83,10 @@ export class AdminFilesController {
       limit: limit ? parseInt(limit, 10) : 50,
       prefix: search,
       mimeType,
+      dateFrom: dateFrom ? new Date(dateFrom) : undefined,
+      dateTo: dateTo ? new Date(dateTo) : undefined,
+      sizeMin: sizeMin ? parseInt(sizeMin, 10) : undefined,
+      sizeMax: sizeMax ? parseInt(sizeMax, 10) : undefined,
       sort: sort || 'createdAt',
       order: order || 'desc',
     });

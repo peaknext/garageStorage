@@ -26,8 +26,10 @@ export class PolicyExecutorService {
     const policies = await this.policiesService.getActivePoliciesDueForExecution();
 
     for (const policy of policies) {
+      const startTime = Date.now();
       try {
-        await this.executePolicy(policy);
+        const result = await this.executePolicy(policy);
+        const duration = Date.now() - startTime;
 
         // Calculate next run time
         const nextRun = policy.schedule
@@ -42,9 +44,15 @@ export class PolicyExecutorService {
           resourceType: 'STORAGE_POLICY',
           resourceId: policy.id,
           resourceName: policy.name,
-          metadata: { policyType: policy.policyType },
+          metadata: {
+            policyType: policy.policyType,
+            triggerType: 'SCHEDULED',
+            duration,
+            ...result,
+          },
         });
       } catch (error) {
+        const duration = Date.now() - startTime;
         this.logger.error(
           `Failed to execute policy ${policy.id}: ${error.message}`,
           error.stack,
@@ -58,6 +66,11 @@ export class PolicyExecutorService {
           resourceName: policy.name,
           status: 'FAILURE',
           errorMessage: error.message,
+          metadata: {
+            policyType: policy.policyType,
+            triggerType: 'SCHEDULED',
+            duration,
+          },
         });
       }
     }
@@ -83,7 +96,7 @@ export class PolicyExecutorService {
   private async executeAutoDeletePolicy(policy: any) {
     if (!policy.deleteAfterDays) {
       this.logger.warn(`Policy ${policy.id} has no deleteAfterDays set`);
-      return;
+      return { deletedCount: 0, freedBytes: 0, filesFound: 0 };
     }
 
     const cutoffDate = new Date();
@@ -125,6 +138,7 @@ export class PolicyExecutorService {
     this.logger.log(`Found ${files.length} files to delete for policy ${policy.id}`);
 
     let deletedCount = 0;
+    let freedBytes = 0;
     for (const file of files) {
       try {
         // Delete from S3
@@ -140,13 +154,14 @@ export class PolicyExecutorService {
         });
 
         deletedCount++;
+        freedBytes += Number(file.sizeBytes);
       } catch (error) {
         this.logger.error(`Failed to delete file ${file.id}: ${error.message}`);
       }
     }
 
-    this.logger.log(`Deleted ${deletedCount} files for policy ${policy.id}`);
-    return { deletedCount };
+    this.logger.log(`Deleted ${deletedCount} files (${freedBytes} bytes) for policy ${policy.id}`);
+    return { deletedCount, freedBytes, filesFound: files.length };
   }
 
   private async executeRetentionPolicy(policy: any) {
@@ -177,18 +192,20 @@ export class PolicyExecutorService {
     });
 
     let deletedCount = 0;
+    let freedBytes = 0;
     for (const file of files) {
       try {
         await this.s3.deleteFile(file.bucket.garageBucketId, file.key);
         await this.prisma.file.delete({ where: { id: file.id } });
         deletedCount++;
+        freedBytes += Number(file.sizeBytes);
       } catch (error) {
         this.logger.error(`Failed to cleanup temp file ${file.id}: ${error.message}`);
       }
     }
 
-    this.logger.log(`Cleaned up ${deletedCount} temp files`);
-    return { deletedCount };
+    this.logger.log(`Cleaned up ${deletedCount} temp files (${freedBytes} bytes)`);
+    return { deletedCount, freedBytes, filesFound: files.length };
   }
 
   private async executeCleanupOrphansPolicy(policy: any) {

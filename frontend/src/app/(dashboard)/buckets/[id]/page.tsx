@@ -28,17 +28,20 @@ import {
   RefreshCw,
   Copy,
   Check,
+  Image,
 } from 'lucide-react';
-import { useState } from 'react';
-import { FileList } from '@/components/files/file-list';
+import { useState, useEffect } from 'react';
+import { FileList, FileFilters } from '@/components/files/file-list';
 import { UploadModal } from '@/components/files/upload-modal';
 import { ShareModal } from '@/components/files/share-modal';
+import { FolderBrowser } from '@/components/files/folder-browser';
 import { useToast } from '@/hooks/use-toast';
 
 interface Bucket {
   id: string;
   name: string;
   garageBucketId: string;
+  applicationId: string;
   usedBytes: number;
   quotaBytes: number | null;
   fileCount: number;
@@ -65,6 +68,15 @@ interface FileItem {
   url: string;
 }
 
+const defaultFilters: FileFilters = {
+  search: '',
+  mimeType: '',
+  dateFrom: '',
+  dateTo: '',
+  sizeMin: '',
+  sizeMax: '',
+};
+
 export default function BucketDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -73,13 +85,28 @@ export default function BucketDetailPage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [shareFile, setShareFile] = useState<FileItem | null>(null);
   const [copied, setCopied] = useState(false);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [filters, setFilters] = useState<FileFilters>(defaultFilters);
+  const [debouncedFilters, setDebouncedFilters] = useState<FileFilters>(defaultFilters);
   const { toast } = useToast();
+
+  // Debounce filter changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedFilters(filters);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [filters]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const hasActiveFilters = debouncedFilters.search || debouncedFilters.mimeType ||
+    debouncedFilters.dateFrom || debouncedFilters.dateTo ||
+    debouncedFilters.sizeMin || debouncedFilters.sizeMax;
 
   const { data: bucket, isLoading } = useQuery({
     queryKey: ['bucket', params.id],
@@ -89,18 +116,42 @@ export default function BucketDetailPage() {
     },
   });
 
-  const { data: filesData, isLoading: filesLoading, refetch: refetchFiles } = useQuery({
-    queryKey: ['bucket-files', params.id],
+  // Fetch files with server-side filtering (when no folder selected)
+  const { data: allFilesData, isLoading: allFilesLoading, refetch: refetchFiles } = useQuery({
+    queryKey: ['bucket-files', params.id, debouncedFilters],
+    queryFn: async () => {
+      const searchParams = new URLSearchParams();
+      if (debouncedFilters.search) searchParams.append('search', debouncedFilters.search);
+      if (debouncedFilters.mimeType) searchParams.append('mimeType', debouncedFilters.mimeType);
+      if (debouncedFilters.dateFrom) searchParams.append('dateFrom', debouncedFilters.dateFrom);
+      if (debouncedFilters.dateTo) searchParams.append('dateTo', debouncedFilters.dateTo);
+      if (debouncedFilters.sizeMin) searchParams.append('sizeMin', debouncedFilters.sizeMin);
+      if (debouncedFilters.sizeMax) searchParams.append('sizeMax', debouncedFilters.sizeMax);
+
+      const queryString = searchParams.toString();
+      const url = `/admin/buckets/${params.id}/files${queryString ? `?${queryString}` : ''}`;
+
+      const { data } = await apiClient.get<{ data: FileItem[]; meta: { total: number } }>(url);
+      return data;
+    },
+    enabled: !!bucket && !currentFolderId,
+  });
+
+  // Fetch files in selected folder (no filtering for folder view)
+  const { data: folderFilesData, isLoading: folderFilesLoading } = useQuery({
+    queryKey: ['folder-files', currentFolderId],
     queryFn: async () => {
       const { data } = await apiClient.get<{ data: FileItem[]; meta: { total: number } }>(
-        `/admin/buckets/${params.id}/files`
+        `/admin/folders/${currentFolderId}/files`
       );
       return data;
     },
-    enabled: !!bucket,
+    enabled: !!bucket && !!currentFolderId,
   });
 
-  const files = filesData?.data;
+  const files = currentFolderId ? folderFilesData?.data : allFilesData?.data;
+  const filesLoading = currentFolderId ? folderFilesLoading : allFilesLoading;
+  const totalFiles = currentFolderId ? folderFilesData?.meta?.total : allFilesData?.meta?.total;
 
   const syncFilesMutation = useMutation({
     mutationFn: async () => {
@@ -132,6 +183,30 @@ export default function BucketDetailPage() {
     onError: (error: Error) => {
       toast({
         title: 'Sync Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const regenerateThumbnailsMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await apiClient.post<{
+        queued: number;
+        skipped: number;
+      }>(`/admin/buckets/${params.id}/processing/thumbnails/regenerate`);
+      return data;
+    },
+    onSuccess: (data) => {
+      toast({
+        title: 'Thumbnails Regenerating',
+        description: `Queued ${data.queued} image(s) for thumbnail generation`,
+        variant: 'success',
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Regeneration Failed',
         description: error.message,
         variant: 'destructive',
       });
@@ -361,6 +436,23 @@ export default function BucketDetailPage() {
             <div className="flex gap-3">
               <Button
                 variant="outline"
+                onClick={() => regenerateThumbnailsMutation.mutate()}
+                disabled={regenerateThumbnailsMutation.isPending}
+              >
+                {regenerateThumbnailsMutation.isPending ? (
+                  <>
+                    <Image className="mr-2 h-4 w-4 animate-pulse" />
+                    Regenerating...
+                  </>
+                ) : (
+                  <>
+                    <Image className="mr-2 h-4 w-4" />
+                    Regenerate Thumbnails
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() => syncFilesMutation.mutate()}
                 disabled={syncFilesMutation.isPending}
               >
@@ -383,13 +475,31 @@ export default function BucketDetailPage() {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          <FileList
-            files={files || []}
-            bucketId={params.id as string}
-            isLoading={filesLoading}
-            onShare={(file) => setShareFile(file)}
-          />
+        <CardContent className="p-0">
+          <div className="flex">
+            {/* Folder Browser Sidebar */}
+            <div className="w-64 border-r border-white/[0.08] flex-shrink-0">
+              <FolderBrowser
+                bucketId={params.id as string}
+                currentFolderId={currentFolderId}
+                onFolderSelect={setCurrentFolderId}
+              />
+            </div>
+            {/* File List */}
+            <div className="flex-1 p-6">
+              <FileList
+                files={files || []}
+                bucketId={params.id as string}
+                applicationId={bucket.applicationId}
+                isLoading={filesLoading}
+                onShare={(file) => setShareFile(file)}
+                filters={filters}
+                onFiltersChange={setFilters}
+                totalFiles={totalFiles || 0}
+                isInFolder={!!currentFolderId}
+              />
+            </div>
+          </div>
         </CardContent>
       </Card>
 

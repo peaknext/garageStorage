@@ -252,3 +252,101 @@ interface PaginatedResponse<T> {
 - **Upload large files**: Get presigned URL, upload directly to S3, confirm with `/admin/buckets/:id/files/confirm-upload`
 - **Download**: Get presigned URL from `/admin/buckets/:id/files/:fileId/download`
 - **Share links**: Point to `/api/v1/shares/:token/download` for direct file access
+
+## Lessons Learned (Session 2025-12-29)
+
+### Always Audit Against the Spec Before Implementing
+
+When implementing a multi-feature plan, **verify all features against the original spec** before considering work complete. Don't just fix bugs reactively—do a comprehensive audit:
+
+1. Read the plan file thoroughly
+2. Check each file that should exist/be modified
+3. Verify each feature works end-to-end
+4. Create a checklist and mark items complete only after verification
+
+### Backend and Frontend Must Match
+
+When implementing API-connected features, verify **both sides match**:
+
+| Issue | Root Cause | Fix |
+|-------|-----------|-----|
+| Move-to-folder 500 error | Frontend sent `{ folderIds: [id] }`, backend expected `{ folderId: id }` | Check controller `@Body()` decorators match frontend payloads |
+| Folder files not showing | `getFilesInFolder` returned raw DB objects without tags/formatting | Format response to match main files list structure |
+| Thumbnail generation failing | Bull queue needed `REDIS_HOST/PORT/PASSWORD` but only `REDIS_URL` was set | Add all required Redis env vars to docker-compose |
+
+### Response Format Consistency
+
+When multiple endpoints return similar data, **ensure consistent formatting**:
+
+```typescript
+// BAD: getFilesInFolder returns different format than listFiles
+return { data: fileFolders.map((ff) => ff.file) };  // Raw DB object
+
+// GOOD: Format to match other endpoints
+return {
+  data: fileFolders.map((ff) => ({
+    ...ff.file,
+    sizeBytes: Number(ff.file.sizeBytes),  // BigInt → Number
+    tags: ff.file.tags?.map(t => ({ id: t.tag.id, name: t.tag.name, color: t.tag.color })),
+  }))
+};
+```
+
+### Client-Side vs Server-Side Filtering
+
+If the plan says "server-side search", **verify the API is actually being called**:
+
+```typescript
+// BAD: Client-side filtering (looks like search but doesn't call API)
+const filteredFiles = useMemo(() => files.filter(...), [files, search]);
+
+// GOOD: Server-side filtering (API receives search params)
+const { data } = useQuery({
+  queryKey: ['files', bucketId, search, filters],
+  queryFn: () => apiClient.get(`/files?search=${search}&mimeType=${filter}`)
+});
+```
+
+### Docker Environment Variables for Bull/Redis
+
+Bull queues require **individual Redis config vars**, not just `REDIS_URL`:
+
+```yaml
+# docker-compose.yml - storage-api service
+environment:
+  - REDIS_URL=redis://:password@redis:6379     # For general Redis client
+  - REDIS_HOST=redis                            # Required for Bull
+  - REDIS_PORT=6379                             # Required for Bull
+  - REDIS_PASSWORD=${REDIS_PASSWORD}            # Required for Bull
+```
+
+### File Search API Enhancements
+
+The files list endpoint supports these query params:
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `search` | string | Searches `key` and `originalName` (case-insensitive contains) |
+| `mimeType` | string | Filters by MIME type prefix (e.g., `image/`, `application/pdf`) |
+| `dateFrom` | ISO string | Files created after this date |
+| `dateTo` | ISO string | Files created before this date |
+| `sizeMin` | number | Minimum file size in bytes |
+| `sizeMax` | number | Maximum file size in bytes |
+
+### Use Todo Lists for Multi-Step Tasks
+
+For complex implementations, **always use TodoWrite** to track progress:
+
+1. Break down into discrete steps
+2. Mark each step in_progress before starting
+3. Mark completed immediately after finishing (don't batch)
+4. This prevents forgetting steps and provides visibility
+
+### Test the Full Flow, Not Just Individual Parts
+
+After implementing, test the complete user flow:
+
+1. Navigate to the feature
+2. Perform the action
+3. Verify the result appears correctly
+4. Check related features still work (e.g., after adding filters, verify folder navigation still shows files)

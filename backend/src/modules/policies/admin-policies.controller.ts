@@ -10,6 +10,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -17,10 +18,11 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PoliciesService, CreatePolicyDto, UpdatePolicyDto } from './policies.service';
 import { PolicyExecutorService } from './policy-executor.service';
-import { PolicyScope, PolicyType } from '@prisma/client';
+import { PolicyScope, PolicyType, ActorType, AuditStatus } from '@prisma/client';
 
 @ApiTags('admin-policies')
 @Controller('admin/policies')
@@ -30,6 +32,7 @@ export class AdminPoliciesController {
   constructor(
     private policiesService: PoliciesService,
     private policyExecutor: PolicyExecutorService,
+    private eventEmitter: EventEmitter2,
   ) {}
 
   @Get()
@@ -79,8 +82,54 @@ export class AdminPoliciesController {
 
   @Post(':id/execute')
   @ApiOperation({ summary: 'Manually execute a policy' })
-  async executePolicy(@Param('id') id: string) {
+  async executePolicy(@Param('id') id: string, @Request() req: any) {
     const policy = await this.policiesService.findOne(id);
-    return this.policyExecutor.executePolicy(policy);
+    const startTime = Date.now();
+
+    try {
+      const result = await this.policyExecutor.executePolicy(policy);
+      const duration = Date.now() - startTime;
+
+      // Emit audit event with detailed results
+      this.eventEmitter.emit('audit.log', {
+        actorType: ActorType.ADMIN_USER,
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: 'POLICY_EXECUTED_MANUAL',
+        resourceType: 'STORAGE_POLICY',
+        resourceId: policy.id,
+        resourceName: policy.name,
+        metadata: {
+          policyType: policy.policyType,
+          triggerType: 'MANUAL',
+          duration,
+          ...result,
+        },
+      });
+
+      return { success: true, duration, policyName: policy.name, policyType: policy.policyType, ...result };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      // Emit failure audit event
+      this.eventEmitter.emit('audit.log', {
+        actorType: ActorType.ADMIN_USER,
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: 'POLICY_EXECUTION_FAILED',
+        resourceType: 'STORAGE_POLICY',
+        resourceId: policy.id,
+        resourceName: policy.name,
+        status: AuditStatus.FAILURE,
+        errorMessage: error.message,
+        metadata: {
+          policyType: policy.policyType,
+          triggerType: 'MANUAL',
+          duration,
+        },
+      });
+
+      throw error;
+    }
   }
 }

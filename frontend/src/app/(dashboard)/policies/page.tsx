@@ -26,12 +26,12 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { apiClient } from '@/lib/api-client';
-import { formatDate } from '@/lib/utils';
+import { formatDate, formatBytes } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 import {
   Shield,
   Plus,
@@ -40,7 +40,7 @@ import {
   Trash2,
   Clock,
   Calendar,
-  Settings,
+  Pencil,
   AlertCircle,
   CheckCircle,
   FileWarning,
@@ -92,6 +92,20 @@ interface Bucket {
   name: string;
 }
 
+interface PolicyExecutionResult {
+  success: boolean;
+  duration: number;
+  policyName: string;
+  policyType: string;
+  deletedCount?: number;
+  freedBytes?: number;
+  filesFound?: number;
+  deletedDbRecords?: number;
+  deletedS3Files?: number;
+  validated?: boolean;
+  errors?: number;
+}
+
 const POLICY_TYPE_INFO: Record<string, { icon: React.ReactNode; color: string; description: string }> = {
   RETENTION: {
     icon: <Timer className="h-5 w-5" />,
@@ -122,7 +136,9 @@ const POLICY_TYPE_INFO: Record<string, { icon: React.ReactNode; color: string; d
 
 export default function PoliciesPage() {
   const queryClient = useQueryClient();
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const { toast } = useToast();
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingPolicy, setEditingPolicy] = useState<StoragePolicy | null>(null);
   const [page, setPage] = useState(1);
   const limit = 20;
 
@@ -176,8 +192,17 @@ export default function PoliciesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['policies'] });
-      setIsCreateOpen(false);
-      resetForm();
+      closeDialog();
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, policyData }: { id: string; policyData: any }) => {
+      await apiClient.patch(`/admin/policies/${id}`, policyData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['policies'] });
+      closeDialog();
     },
   });
 
@@ -192,10 +217,49 @@ export default function PoliciesPage() {
 
   const executeMutation = useMutation({
     mutationFn: async (id: string) => {
-      await apiClient.post(`/admin/policies/${id}/execute`);
+      const { data } = await apiClient.post<PolicyExecutionResult>(`/admin/policies/${id}/execute`);
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['policies'] });
+
+      // Build result message based on policy type
+      const parts: string[] = [];
+
+      if (data.deletedCount !== undefined && data.deletedCount > 0) {
+        parts.push(`Deleted ${data.deletedCount} file${data.deletedCount !== 1 ? 's' : ''}`);
+      }
+      if (data.deletedDbRecords !== undefined && data.deletedDbRecords > 0) {
+        parts.push(`Removed ${data.deletedDbRecords} DB record${data.deletedDbRecords !== 1 ? 's' : ''}`);
+      }
+      if (data.deletedS3Files !== undefined && data.deletedS3Files > 0) {
+        parts.push(`Deleted ${data.deletedS3Files} S3 file${data.deletedS3Files !== 1 ? 's' : ''}`);
+      }
+      if (data.freedBytes && data.freedBytes > 0) {
+        parts.push(`freed ${formatBytes(data.freedBytes)}`);
+      }
+      if (data.validated) {
+        parts.push('Retention validated');
+      }
+
+      let description = parts.join(', ');
+      if (!description) {
+        description = 'No actions needed';
+      }
+      description += ` (${data.duration}ms)`;
+
+      toast({
+        title: `Policy "${data.policyName}" executed`,
+        description,
+        variant: 'success',
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Policy Execution Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
     },
   });
 
@@ -222,7 +286,35 @@ export default function PoliciesPage() {
     setIsActive(true);
   };
 
-  const handleCreate = () => {
+  const openCreateDialog = () => {
+    resetForm();
+    setEditingPolicy(null);
+    setIsDialogOpen(true);
+  };
+
+  const openEditDialog = (policy: StoragePolicy) => {
+    setEditingPolicy(policy);
+    setName(policy.name);
+    setDescription(policy.description || '');
+    setScope(policy.scope);
+    setApplicationId(policy.applicationId || '');
+    setBucketId(policy.bucketId || '');
+    setPolicyType(policy.policyType);
+    setRetentionDays(policy.retentionDays?.toString() || '30');
+    setDeleteAfterDays(policy.deleteAfterDays?.toString() || '90');
+    setDeleteBasedOn(policy.deleteBasedOn || 'CREATED');
+    setSchedule(policy.schedule || '0 2 * * *');
+    setIsActive(policy.isActive);
+    setIsDialogOpen(true);
+  };
+
+  const closeDialog = () => {
+    setIsDialogOpen(false);
+    setEditingPolicy(null);
+    resetForm();
+  };
+
+  const handleSubmit = () => {
     const policyData: any = {
       name,
       description: description || undefined,
@@ -247,7 +339,11 @@ export default function PoliciesPage() {
       policyData.deleteBasedOn = deleteBasedOn;
     }
 
-    createMutation.mutate(policyData);
+    if (editingPolicy) {
+      updateMutation.mutate({ id: editingPolicy.id, policyData });
+    } else {
+      createMutation.mutate(policyData);
+    }
   };
 
   return (
@@ -263,18 +359,16 @@ export default function PoliciesPage() {
             <p className="text-[#c4bbd3]">Manage automated storage rules and retention</p>
           </div>
         </div>
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-[#ee4f27] hover:bg-[#d94520] text-white">
-              <Plus className="h-4 w-4 mr-2" />
-              Create Policy
-            </Button>
-          </DialogTrigger>
+        <Button onClick={openCreateDialog} className="bg-[#ee4f27] hover:bg-[#d94520] text-white">
+          <Plus className="h-4 w-4 mr-2" />
+          Create Policy
+        </Button>
+        <Dialog open={isDialogOpen} onOpenChange={(open) => !open && closeDialog()}>
           <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>Create Storage Policy</DialogTitle>
+              <DialogTitle>{editingPolicy ? 'Edit Policy' : 'Create Storage Policy'}</DialogTitle>
               <DialogDescription>
-                Define automated rules for managing your storage
+                {editingPolicy ? 'Update the policy settings' : 'Define automated rules for managing your storage'}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
@@ -424,15 +518,17 @@ export default function PoliciesPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
+              <Button variant="outline" onClick={closeDialog}>
                 Cancel
               </Button>
               <Button
-                onClick={handleCreate}
-                disabled={!name || createMutation.isPending}
+                onClick={handleSubmit}
+                disabled={!name || createMutation.isPending || updateMutation.isPending}
                 className="bg-[#ee4f27] hover:bg-[#d94520]"
               >
-                {createMutation.isPending ? 'Creating...' : 'Create Policy'}
+                {createMutation.isPending || updateMutation.isPending
+                  ? (editingPolicy ? 'Saving...' : 'Creating...')
+                  : (editingPolicy ? 'Save Changes' : 'Create Policy')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -569,6 +665,15 @@ export default function PoliciesPage() {
                           title="Run now"
                         >
                           <Play className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => openEditDialog(policy)}
+                          title="Edit policy"
+                        >
+                          <Pencil className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"

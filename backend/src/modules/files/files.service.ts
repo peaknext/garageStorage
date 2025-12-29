@@ -270,6 +270,10 @@ export class FilesService {
       mimeType?: string;
       sort?: string;
       order?: 'asc' | 'desc';
+      dateFrom?: Date;
+      dateTo?: Date;
+      sizeMin?: number;
+      sizeMax?: number;
     },
   ) {
     const {
@@ -279,6 +283,10 @@ export class FilesService {
       mimeType,
       sort = 'createdAt',
       order = 'desc',
+      dateFrom,
+      dateTo,
+      sizeMin,
+      sizeMax,
     } = query;
 
     const bucket = await this.prisma.bucket.findFirst({
@@ -291,10 +299,23 @@ export class FilesService {
 
     const where: any = { bucketId };
     if (prefix) {
-      where.key = { startsWith: prefix };
+      where.OR = [
+        { key: { contains: prefix, mode: 'insensitive' } },
+        { originalName: { contains: prefix, mode: 'insensitive' } },
+      ];
     }
     if (mimeType) {
       where.mimeType = { startsWith: mimeType };
+    }
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) where.createdAt.gte = dateFrom;
+      if (dateTo) where.createdAt.lte = dateTo;
+    }
+    if (sizeMin !== undefined || sizeMax !== undefined) {
+      where.sizeBytes = {};
+      if (sizeMin !== undefined) where.sizeBytes.gte = BigInt(sizeMin);
+      if (sizeMax !== undefined) where.sizeBytes.lte = BigInt(sizeMax);
     }
 
     const [files, total] = await Promise.all([
@@ -303,6 +324,13 @@ export class FilesService {
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { [sort]: order },
+        include: {
+          tags: {
+            include: {
+              tag: true,
+            },
+          },
+        },
       }),
       this.prisma.file.count({ where }),
     ]);
@@ -485,6 +513,23 @@ export class FilesService {
       300,
     );
 
+    // Get thumbnail URL if available
+    let thumbnailUrl: string | null = null;
+    if (file.thumbnailStatus === 'GENERATED' && file.thumbnailKey) {
+      thumbnailUrl = await this.s3.getPresignedDownloadUrl(
+        garageBucketId,
+        file.thumbnailKey,
+        300,
+      );
+    }
+
+    // Format tags if present
+    const tags = file.tags?.map((ft: any) => ({
+      id: ft.tag.id,
+      name: ft.tag.name,
+      color: ft.tag.color,
+    })) || [];
+
     return {
       id: file.id,
       key: file.key,
@@ -493,6 +538,9 @@ export class FilesService {
       sizeBytes: Number(file.sizeBytes),
       isPublic: file.isPublic,
       downloadCount: file.downloadCount,
+      thumbnailStatus: file.thumbnailStatus,
+      thumbnailUrl,
+      tags,
       createdAt: file.createdAt,
       updatedAt: file.updatedAt,
       url,

@@ -25,7 +25,23 @@ import {
   Lock,
   CheckSquare,
   Square,
+  Eye,
+  Tag,
+  FolderInput,
+  Filter,
+  X,
+  Clock,
+  Database,
 } from 'lucide-react';
+import { FilePreviewModal } from './file-preview-modal';
+import { TagPicker } from './tag-picker';
+import { MoveToFolderModal } from './move-to-folder-modal';
+
+interface FileTag {
+  id: string;
+  name: string;
+  color: string;
+}
 
 interface FileItem {
   id: string;
@@ -37,13 +53,30 @@ interface FileItem {
   downloadCount: number;
   createdAt: string;
   url: string;
+  thumbnailStatus?: 'NONE' | 'PENDING' | 'GENERATED' | 'FAILED' | 'NOT_APPLICABLE';
+  thumbnailUrl?: string | null;
+  tags?: FileTag[];
+}
+
+export interface FileFilters {
+  search: string;
+  mimeType: string;
+  dateFrom: string;
+  dateTo: string;
+  sizeMin: string;
+  sizeMax: string;
 }
 
 interface FileListProps {
   files: FileItem[];
   bucketId: string;
+  applicationId?: string;
   isLoading?: boolean;
   onShare?: (file: FileItem) => void;
+  filters?: FileFilters;
+  onFiltersChange?: (filters: FileFilters) => void;
+  totalFiles?: number;
+  isInFolder?: boolean;
 }
 
 const getFileIcon = (mimeType: string) => {
@@ -68,19 +101,67 @@ const getFileIconColor = (mimeType: string) => {
   return 'text-[#c4bbd3]';
 };
 
-export function FileList({ files, bucketId, isLoading, onShare }: FileListProps) {
+const FILE_TYPE_FILTERS = [
+  { value: '', label: 'All Types' },
+  { value: 'image/', label: 'Images' },
+  { value: 'video/', label: 'Videos' },
+  { value: 'audio/', label: 'Audio' },
+  { value: 'application/pdf', label: 'PDFs' },
+  { value: 'text/', label: 'Text' },
+  { value: 'application/', label: 'Documents' },
+];
+
+const SIZE_PRESETS = [
+  { label: 'Any size', min: '', max: '' },
+  { label: '< 100 KB', min: '', max: '102400' },
+  { label: '100 KB - 1 MB', min: '102400', max: '1048576' },
+  { label: '1 MB - 10 MB', min: '1048576', max: '10485760' },
+  { label: '> 10 MB', min: '10485760', max: '' },
+];
+
+export function FileList({ files, bucketId, applicationId, isLoading, onShare, filters, onFiltersChange, totalFiles, isInFolder }: FileListProps) {
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [showDateFilter, setShowDateFilter] = useState(false);
+  const [showSizeFilter, setShowSizeFilter] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const [mounted, setMounted] = useState(false);
   const [deleteFileId, setDeleteFileId] = useState<string | null>(null);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
+  const [tagPickerFile, setTagPickerFile] = useState<{ file: FileItem; position: { top: number; left: number } } | null>(null);
+  const [showMoveToFolder, setShowMoveToFolder] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Helper to update a single filter
+  const updateFilter = (key: keyof FileFilters, value: string) => {
+    if (filters && onFiltersChange) {
+      onFiltersChange({ ...filters, [key]: value });
+    }
+  };
+
+  const clearAllFilters = () => {
+    if (onFiltersChange) {
+      onFiltersChange({
+        search: '',
+        mimeType: '',
+        dateFrom: '',
+        dateTo: '',
+        sizeMin: '',
+        sizeMax: '',
+      });
+    }
+  };
+
+  const hasActiveFilters = filters && (
+    filters.search || filters.mimeType || filters.dateFrom ||
+    filters.dateTo || filters.sizeMin || filters.sizeMax
+  );
 
   const deleteMutation = useMutation({
     mutationFn: async (fileId: string) => {
@@ -101,9 +182,7 @@ export function FileList({ files, bucketId, isLoading, onShare }: FileListProps)
     },
   });
 
-  const filteredFiles = files.filter((file) =>
-    file.originalName.toLowerCase().includes(search.toLowerCase())
-  );
+  const activeFilterLabel = FILE_TYPE_FILTERS.find((f) => f.value === filters?.mimeType)?.label;
 
   const toggleSelect = (fileId: string) => {
     const newSelected = new Set(selectedFiles);
@@ -116,10 +195,10 @@ export function FileList({ files, bucketId, isLoading, onShare }: FileListProps)
   };
 
   const toggleSelectAll = () => {
-    if (selectedFiles.size === filteredFiles.length) {
+    if (selectedFiles.size === files.length) {
       setSelectedFiles(new Set());
     } else {
-      setSelectedFiles(new Set(filteredFiles.map((f) => f.id)));
+      setSelectedFiles(new Set(files.map((f) => f.id)));
     }
   };
 
@@ -165,35 +244,188 @@ export function FileList({ files, bucketId, isLoading, onShare }: FileListProps)
 
   return (
     <div className="space-y-4">
-      {/* Search and Actions */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#c4bbd3]/60" />
-          <Input
-            placeholder="Search files..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-11"
-          />
+      {/* Search and Filters */}
+      {!isInFolder && filters && onFiltersChange && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 flex-1 flex-wrap">
+              {/* Search Input */}
+              <div className="relative flex-1 min-w-[200px] max-w-md">
+                <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#c4bbd3]/60" />
+                <Input
+                  placeholder="Search files..."
+                  value={filters.search}
+                  onChange={(e) => updateFilter('search', e.target.value)}
+                  className="pl-11"
+                />
+              </div>
+
+              {/* Type Filter */}
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowFilters(!showFilters)}
+                  className={filters.mimeType ? 'border-[#ee4f27]/30 text-[#ee4f27]' : ''}
+                >
+                  <Filter className="mr-2 h-4 w-4" />
+                  {activeFilterLabel || 'Type'}
+                </Button>
+                {showFilters && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowFilters(false)} />
+                    <div className="absolute top-full left-0 mt-2 z-20 w-40 rounded-xl bg-[#1a1025] border border-white/[0.1] shadow-xl py-1">
+                      {FILE_TYPE_FILTERS.map((filter) => (
+                        <button
+                          key={filter.value}
+                          onClick={() => {
+                            updateFilter('mimeType', filter.value);
+                            setShowFilters(false);
+                          }}
+                          className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
+                            filters.mimeType === filter.value
+                              ? 'bg-[#ee4f27]/10 text-[#ee4f27]'
+                              : 'text-white hover:bg-white/[0.05]'
+                          }`}
+                        >
+                          {filter.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Date Filter */}
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowDateFilter(!showDateFilter)}
+                  className={(filters.dateFrom || filters.dateTo) ? 'border-[#ee4f27]/30 text-[#ee4f27]' : ''}
+                >
+                  <Clock className="mr-2 h-4 w-4" />
+                  {filters.dateFrom || filters.dateTo ? 'Date set' : 'Date'}
+                </Button>
+                {showDateFilter && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowDateFilter(false)} />
+                    <div className="absolute top-full left-0 mt-2 z-20 w-64 rounded-xl bg-[#1a1025] border border-white/[0.1] shadow-xl p-3 space-y-3">
+                      <div>
+                        <label className="text-xs text-[#c4bbd3] mb-1 block">From</label>
+                        <Input
+                          type="date"
+                          value={filters.dateFrom}
+                          onChange={(e) => updateFilter('dateFrom', e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-[#c4bbd3] mb-1 block">To</label>
+                        <Input
+                          type="date"
+                          value={filters.dateTo}
+                          onChange={(e) => updateFilter('dateTo', e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => {
+                          updateFilter('dateFrom', '');
+                          updateFilter('dateTo', '');
+                          setShowDateFilter(false);
+                        }}
+                      >
+                        Clear dates
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Size Filter */}
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowSizeFilter(!showSizeFilter)}
+                  className={(filters.sizeMin || filters.sizeMax) ? 'border-[#ee4f27]/30 text-[#ee4f27]' : ''}
+                >
+                  <Database className="mr-2 h-4 w-4" />
+                  {(filters.sizeMin || filters.sizeMax) ? 'Size set' : 'Size'}
+                </Button>
+                {showSizeFilter && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowSizeFilter(false)} />
+                    <div className="absolute top-full left-0 mt-2 z-20 w-48 rounded-xl bg-[#1a1025] border border-white/[0.1] shadow-xl py-1">
+                      {SIZE_PRESETS.map((preset) => (
+                        <button
+                          key={preset.label}
+                          onClick={() => {
+                            onFiltersChange({ ...filters, sizeMin: preset.min, sizeMax: preset.max });
+                            setShowSizeFilter(false);
+                          }}
+                          className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
+                            filters.sizeMin === preset.min && filters.sizeMax === preset.max
+                              ? 'bg-[#ee4f27]/10 text-[#ee4f27]'
+                              : 'text-white hover:bg-white/[0.05]'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Bulk Actions */}
+            {selectedFiles.size > 0 && (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowMoveToFolder(true)}
+                >
+                  <FolderInput className="mr-2 h-4 w-4" />
+                  Move ({selectedFiles.size})
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleBulkDelete}
+                  className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete ({selectedFiles.size})
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Active Filters / Results Count */}
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-[#c4bbd3]">
+              {files.length}{totalFiles !== undefined && totalFiles !== files.length ? ` of ${totalFiles}` : ''} files
+            </span>
+            {hasActiveFilters && (
+              <button
+                onClick={clearAllFilters}
+                className="flex items-center gap-1 text-[#ee4f27] hover:underline"
+              >
+                <X className="h-3 w-3" />
+                Clear filters
+              </button>
+            )}
+          </div>
         </div>
-        {selectedFiles.size > 0 && (
-          <Button
-            variant="outline"
-            onClick={handleBulkDelete}
-            className="border-red-500/30 text-red-400 hover:bg-red-500/10"
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Delete ({selectedFiles.size})
-          </Button>
-        )}
-      </div>
+      )}
 
       {/* File Table */}
-      {filteredFiles.length === 0 ? (
+      {files.length === 0 ? (
         <div className="py-12 text-center">
           <File className="h-12 w-12 text-[#c4bbd3]/30 mx-auto mb-3" />
           <p className="text-[#c4bbd3]">
-            {search ? 'No files match your search' : 'No files in this bucket'}
+            {filters?.search ? 'No files match your search' : 'No files in this bucket'}
           </p>
         </div>
       ) : (
@@ -202,7 +434,7 @@ export function FileList({ files, bucketId, isLoading, onShare }: FileListProps)
           <div className="grid grid-cols-[auto_1fr_100px_100px_120px_80px] gap-4 px-4 py-3 bg-white/[0.02] border-b border-white/[0.08] text-sm font-medium text-[#c4bbd3]">
             <div className="flex items-center">
               <button onClick={toggleSelectAll} className="p-1 hover:bg-white/10 rounded">
-                {selectedFiles.size === filteredFiles.length && filteredFiles.length > 0 ? (
+                {selectedFiles.size === files.length && files.length > 0 ? (
                   <CheckSquare className="h-4 w-4 text-[#ee4f27]" />
                 ) : (
                   <Square className="h-4 w-4" />
@@ -217,7 +449,7 @@ export function FileList({ files, bucketId, isLoading, onShare }: FileListProps)
           </div>
 
           {/* Rows */}
-          {filteredFiles.map((file) => {
+          {files.map((file) => {
             const Icon = getFileIcon(file.mimeType);
             const iconColor = getFileIconColor(file.mimeType);
 
@@ -240,10 +472,27 @@ export function FileList({ files, bucketId, isLoading, onShare }: FileListProps)
                 </div>
 
                 <div className="flex items-center gap-3 min-w-0">
-                  <Icon className={`h-5 w-5 flex-shrink-0 ${iconColor}`} />
+                  {/* Show thumbnail for images, otherwise show icon */}
+                  {file.mimeType.startsWith('image/') && file.thumbnailUrl ? (
+                    <div className="relative h-10 w-10 flex-shrink-0 rounded-lg overflow-hidden bg-white/[0.05] border border-white/[0.1]">
+                      <img
+                        src={file.thumbnailUrl}
+                        alt={file.originalName}
+                        className="h-full w-full object-cover"
+                        onError={(e) => {
+                          // Hide broken image and show fallback
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                      <Icon className={`h-5 w-5 ${iconColor}`} />
+                    </div>
+                  )}
                   <div className="min-w-0">
                     <p className="text-sm text-white truncate">{file.originalName}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       {file.isPublic ? (
                         <span className="flex items-center gap-1 text-xs text-emerald-400">
                           <Globe className="h-3 w-3" />
@@ -259,6 +508,28 @@ export function FileList({ files, bucketId, isLoading, onShare }: FileListProps)
                         <span className="text-xs text-[#c4bbd3]/60">
                           {file.downloadCount} downloads
                         </span>
+                      )}
+                      {file.tags && file.tags.length > 0 && (
+                        <div className="flex items-center gap-1">
+                          {file.tags.slice(0, 3).map((tag) => (
+                            <span
+                              key={tag.id}
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium"
+                              style={{
+                                backgroundColor: `${tag.color}20`,
+                                color: tag.color,
+                                border: `1px solid ${tag.color}40`,
+                              }}
+                            >
+                              {tag.name}
+                            </span>
+                          ))}
+                          {file.tags.length > 3 && (
+                            <span className="text-[10px] text-[#c4bbd3]/60">
+                              +{file.tags.length - 3}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -322,6 +593,16 @@ export function FileList({ files, bucketId, isLoading, onShare }: FileListProps)
                       >
                         <button
                           onClick={() => {
+                            setPreviewFile(file);
+                            setOpenDropdown(null);
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white hover:bg-white/[0.05]"
+                        >
+                          <Eye className="h-4 w-4" />
+                          Preview
+                        </button>
+                        <button
+                          onClick={() => {
                             handleDownload(file);
                             setOpenDropdown(null);
                           }}
@@ -340,6 +621,22 @@ export function FileList({ files, bucketId, isLoading, onShare }: FileListProps)
                           >
                             <Share2 className="h-4 w-4" />
                             Share
+                          </button>
+                        )}
+                        {applicationId && (
+                          <button
+                            onClick={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              setTagPickerFile({
+                                file,
+                                position: { top: rect.top, left: rect.left - 264 - 8 },
+                              });
+                              setOpenDropdown(null);
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white hover:bg-white/[0.05]"
+                          >
+                            <Tag className="h-4 w-4" />
+                            Tags
                           </button>
                         )}
                         <button
@@ -386,6 +683,36 @@ export function FileList({ files, bucketId, isLoading, onShare }: FileListProps)
         onConfirm={confirmBulkDelete}
         loading={bulkDeleteMutation.isPending}
       />
+
+      {/* File Preview Modal */}
+      {previewFile && (
+        <FilePreviewModal
+          file={previewFile}
+          bucketId={bucketId}
+          onClose={() => setPreviewFile(null)}
+        />
+      )}
+
+      {/* Tag Picker */}
+      {tagPickerFile && applicationId && (
+        <TagPicker
+          fileId={tagPickerFile.file.id}
+          bucketId={bucketId}
+          applicationId={applicationId}
+          position={tagPickerFile.position}
+          onClose={() => setTagPickerFile(null)}
+        />
+      )}
+
+      {/* Move to Folder Modal */}
+      {showMoveToFolder && (
+        <MoveToFolderModal
+          bucketId={bucketId}
+          fileIds={Array.from(selectedFiles)}
+          onClose={() => setShowMoveToFolder(false)}
+          onSuccess={() => setSelectedFiles(new Set())}
+        />
+      )}
     </div>
   );
 }

@@ -222,13 +222,50 @@ export class FoldersService {
         where: { folderId },
         skip: (page - 1) * limit,
         take: limit,
-        include: { file: true },
+        include: {
+          file: {
+            include: {
+              tags: {
+                include: {
+                  tag: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { file: { createdAt: 'desc' } },
       }),
       this.prisma.fileFolder.count({ where: { folderId } }),
     ]);
 
+    // Format files to match the main files list structure
+    const formattedFiles = fileFolders.map((ff) => {
+      const file = ff.file;
+      const tags = (file as any).tags?.map((ft: any) => ({
+        id: ft.tag.id,
+        name: ft.tag.name,
+        color: ft.tag.color,
+      })) || [];
+
+      return {
+        id: file.id,
+        key: file.key,
+        originalName: file.originalName,
+        mimeType: file.mimeType,
+        sizeBytes: Number(file.sizeBytes),
+        isPublic: file.isPublic,
+        downloadCount: file.downloadCount,
+        createdAt: file.createdAt,
+        thumbnailStatus: file.thumbnailStatus,
+        thumbnailKey: file.thumbnailKey,
+        imageWidth: file.imageWidth,
+        imageHeight: file.imageHeight,
+        tags,
+      };
+    });
+
     return {
-      data: fileFolders.map((ff) => ff.file),
+      data: formattedFiles,
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }

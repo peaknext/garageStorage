@@ -14,6 +14,8 @@ import {
   Shield,
   Bell,
   FileX,
+  Tag,
+  Folder,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -22,6 +24,7 @@ const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/applications', label: 'Applications', icon: AppWindow },
   { href: '/buckets', label: 'Buckets', icon: FolderOpen },
+  { href: '/tags', label: 'Tags', icon: Tag },
   { href: '/shares', label: 'Share Links', icon: Link2 },
   { href: '/orphan-files', label: 'Orphan Files', icon: FileX },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
