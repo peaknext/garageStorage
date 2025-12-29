@@ -92,4 +92,13 @@ export class AdminTagsController {
   async getFileTags(@Param('fileId') fileId: string) {
     return this.tagsService.getFileTags(fileId);
   }
+
+  @Post('tags/bulk')
+  @ApiOperation({ summary: 'Bulk add tags to multiple files' })
+  async bulkAddTags(
+    @Body('fileIds') fileIds: string[],
+    @Body('tagIds') tagIds: string[],
+  ) {
+    return this.tagsService.bulkAddTagsToFiles(null, fileIds, tagIds);
+  }
 }

@@ -180,23 +180,31 @@ export class AdminFilesController {
 
   @Delete(':fileId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete file (Admin)' })
+  @ApiOperation({ summary: 'Delete file (soft delete by default, use ?permanent=true for hard delete)' })
+  @ApiQuery({ name: 'permanent', required: false, type: Boolean, description: 'Permanently delete without moving to recycle bin' })
   async deleteFile(
     @Param('bucketId') bucketId: string,
     @Param('fileId') fileId: string,
+    @Query('permanent') permanent?: string,
   ) {
     const bucket = await this.getBucketWithApp(bucketId);
-    return this.filesService.deleteFile(bucket.applicationId, bucketId, fileId);
+    return this.filesService.deleteFile(bucket.applicationId, bucketId, fileId, {
+      permanent: permanent === 'true',
+      deletedBy: 'admin',
+    });
   }
 
   @Post('bulk-delete')
-  @ApiOperation({ summary: 'Delete multiple files (Admin)' })
+  @ApiOperation({ summary: 'Delete multiple files (soft delete by default)' })
   async bulkDelete(
     @Param('bucketId') bucketId: string,
-    @Body('fileIds') fileIds: string[],
+    @Body() dto: { fileIds: string[]; permanent?: boolean },
   ) {
     const bucket = await this.getBucketWithApp(bucketId);
-    return this.filesService.bulkDelete(bucket.applicationId, bucketId, fileIds);
+    return this.filesService.bulkDelete(bucket.applicationId, bucketId, dto.fileIds, {
+      permanent: dto.permanent || false,
+      deletedBy: 'admin',
+    });
   }
 
   @Post('sync')

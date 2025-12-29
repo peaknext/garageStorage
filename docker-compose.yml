@@ -10,10 +10,10 @@ services:
     container_name: garage-storage
     restart: unless-stopped
     ports:
-      - "3900:3900"  # S3 API
-      - "3901:3901"  # RPC (internal)
-      - "3902:3902"  # Web serving
-      - "3903:3903"  # Admin API
+      - "3900:3900" # S3 API
+      - "3901:3901" # RPC (internal)
+      - "3902:3902" # Web serving
+      - "3903:3903" # Admin API
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
       - garage-meta:/var/lib/garage/meta
@@ -65,7 +65,8 @@ services:
     networks:
       - storage-network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_password}", "ping"]
+      test:
+        ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_password}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -84,21 +85,21 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=4001
-      - DATABASE_URL=postgresql://postgres:5432@host.docker.internal:5432/garageStorage
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@host.docker.internal:5432/garageStorage
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_password}@redis:6379
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_password}
-      - GARAGE_ENDPOINT=http://garage:3900
-      - GARAGE_PUBLIC_ENDPOINT=http://localhost:3900
-      - GARAGE_ADMIN_ENDPOINT=http://garage:3903
+      - GARAGE_ENDPOINT=http://192.168.1.121:3900
+      - GARAGE_PUBLIC_ENDPOINT=http://192.168.1.121:3900
+      - GARAGE_ADMIN_ENDPOINT=http://192.168.1.121:3903
       - GARAGE_ADMIN_TOKEN=YWRtaW50b2tlbjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkw
       - GARAGE_REGION=garage
       - GARAGE_ACCESS_KEY=${GARAGE_ACCESS_KEY}
       - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY}
       - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRES_IN=7d
-      - API_BASE_URL=http://localhost:4001
+      - API_BASE_URL=http://192.168.1.121:4001
     depends_on:
       redis:
         condition: service_healthy

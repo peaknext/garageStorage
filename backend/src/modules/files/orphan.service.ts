@@ -73,9 +73,9 @@ export class OrphanService {
 
     for (const bucket of buckets) {
       try {
-        // Get all DB file keys for this bucket
+        // Get all DB file keys for this bucket (exclude soft-deleted files)
         const dbFiles = await this.prisma.file.findMany({
-          where: { bucketId: bucket.id },
+          where: { bucketId: bucket.id, deletedAt: null },
           select: {
             id: true,
             key: true,
@@ -87,6 +87,13 @@ export class OrphanService {
         });
         const dbKeyMap = new Map(dbFiles.map((f) => [f.key, f]));
         const dbKeys = new Set(dbFiles.map((f) => f.key));
+
+        // Get soft-deleted file keys (files in recycle bin - still in S3 but not active)
+        const softDeletedFiles = await this.prisma.file.findMany({
+          where: { bucketId: bucket.id, deletedAt: { not: null } },
+          select: { key: true },
+        });
+        const softDeletedKeys = new Set(softDeletedFiles.map((f) => f.key));
 
         // Get all S3 file keys for this bucket
         const s3Keys = new Set<string>();
@@ -141,10 +148,13 @@ export class OrphanService {
         );
 
         // Find S3 orphans (in S3 but not in DB)
-        // Exclude: system prefixes (_thumbnails/) and valid thumbnail keys
+        // Exclude: system prefixes (_thumbnails/), valid thumbnail keys, and soft-deleted files
         for (const [key, s3File] of s3FileMap) {
-          // Skip if it's a known file key
+          // Skip if it's a known active file key
           if (dbKeys.has(key)) continue;
+
+          // Skip if it's a soft-deleted file (in recycle bin)
+          if (softDeletedKeys.has(key)) continue;
 
           // Skip if it's a valid thumbnail for an existing file
           if (thumbnailKeys.has(key)) continue;

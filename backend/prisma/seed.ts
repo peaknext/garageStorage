@@ -34,6 +34,28 @@ async function main() {
   console.log('Email:', email);
   console.log('Password:', password);
   console.log('Role:', admin.role);
+
+  // Create default purge policy for recycle bin
+  const existingPurgePolicy = await prisma.storagePolicy.findFirst({
+    where: { policyType: 'PURGE_DELETED' },
+  });
+
+  if (!existingPurgePolicy) {
+    await prisma.storagePolicy.create({
+      data: {
+        name: 'Auto-purge deleted files',
+        description: 'Automatically permanently delete files that have been in the recycle bin for more than 30 days',
+        scope: 'GLOBAL',
+        policyType: 'PURGE_DELETED',
+        deleteAfterDays: 30,
+        schedule: '0 0 * * *', // Daily at midnight
+        isActive: true,
+      },
+    });
+    console.log('Default purge policy created: Auto-purge deleted files (30 days)');
+  } else {
+    console.log('Purge policy already exists');
+  }
 }
 
 main()

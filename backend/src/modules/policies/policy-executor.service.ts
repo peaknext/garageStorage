@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { S3Service } from '../../services/s3/s3.service';
 import { PoliciesService } from './policies.service';
 import { OrphanService } from '../files/orphan.service';
+import { RecycleBinService } from '../files/recycle-bin.service';
 import { PolicyType, ActorType, DeleteBasedOn } from '@prisma/client';
 
 @Injectable()
@@ -16,6 +17,7 @@ export class PolicyExecutorService {
     private s3: S3Service,
     private policiesService: PoliciesService,
     private orphanService: OrphanService,
+    private recycleBinService: RecycleBinService,
     private eventEmitter: EventEmitter2,
   ) {}
 
@@ -88,9 +90,34 @@ export class PolicyExecutorService {
         return this.executeCleanupTempPolicy(policy);
       case PolicyType.CLEANUP_ORPHANS:
         return this.executeCleanupOrphansPolicy(policy);
+      case PolicyType.PURGE_DELETED:
+        return this.executePurgeDeletedPolicy(policy);
       default:
         this.logger.warn(`Unknown policy type: ${policy.policyType}`);
     }
+  }
+
+  private async executePurgeDeletedPolicy(policy: any) {
+    const retentionDays = policy.deleteAfterDays || 30;
+
+    this.logger.log(
+      `Executing PURGE_DELETED policy ${policy.id}: purging files deleted > ${retentionDays} days ago`,
+    );
+
+    const scope: { applicationId?: string; bucketId?: string } = {};
+    if (policy.bucketId) {
+      scope.bucketId = policy.bucketId;
+    } else if (policy.applicationId) {
+      scope.applicationId = policy.applicationId;
+    }
+
+    const result = await this.recycleBinService.purgeExpiredFiles(retentionDays, scope);
+
+    this.logger.log(
+      `PURGE_DELETED policy ${policy.id} complete: ${result.purgedCount} files purged, ${result.freedBytes} bytes freed`,
+    );
+
+    return result;
   }
 
   private async executeAutoDeletePolicy(policy: any) {

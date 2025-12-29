@@ -46,6 +46,15 @@ export class ProcessingService {
       return { status: 'not_applicable', message: 'File is not an image' };
     }
 
+    // Skip if file is itself a thumbnail or system file
+    if (file.key.startsWith('_thumbnails/') || file.key.startsWith('_system/')) {
+      await this.prisma.file.update({
+        where: { id: fileId },
+        data: { thumbnailStatus: ThumbnailStatus.NOT_APPLICABLE },
+      });
+      return { status: 'not_applicable', message: 'System files do not need thumbnails' };
+    }
+
     // Mark as pending
     await this.prisma.file.update({
       where: { id: fileId },

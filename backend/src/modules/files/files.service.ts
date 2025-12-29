@@ -5,14 +5,20 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { S3Service } from '../../services/s3/s3.service';
 import { CacheService } from '../../services/cache/cache.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { PresignedUploadDto } from './dto/presigned-upload.dto';
 import { ConfirmUploadDto } from './dto/confirm-upload.dto';
+import { CopyFileDto } from './dto/copy-file.dto';
+import { MoveFileDto } from './dto/move-file.dto';
+import { SearchFilesDto } from './dto/search-files.dto';
 import { v4 as uuidv4 } from 'uuid';
 import * as crypto from 'crypto';
+import { Inject, forwardRef } from '@nestjs/common';
+import { ProcessingService } from '../processing/processing.service';
 
 @Injectable()
 export class FilesService {
@@ -23,7 +29,34 @@ export class FilesService {
     private s3: S3Service,
     private cache: CacheService,
     private webhooks: WebhooksService,
+    @Inject(forwardRef(() => ProcessingService))
+    private processing: ProcessingService,
+    private eventEmitter: EventEmitter2,
   ) {}
+
+  /**
+   * Fix multer filename encoding issue.
+   * Multer parses filenames as Latin-1, causing UTF-8 filenames (Thai, Chinese, etc.)
+   * to be double-encoded. This function decodes the bytes correctly as UTF-8.
+   */
+  private fixFilenameEncoding(filename: string): string {
+    try {
+      // Convert the incorrectly decoded string back to bytes and decode as UTF-8
+      const bytes = Buffer.from(filename, 'latin1');
+      const decoded = bytes.toString('utf8');
+
+      // Verify the decoded string is valid UTF-8 (not garbled)
+      // If the original was already ASCII, return as-is
+      if (decoded === filename || !/[\x80-\xff]/.test(filename)) {
+        return filename;
+      }
+
+      return decoded;
+    } catch {
+      // If decoding fails, return original
+      return filename;
+    }
+  }
 
   async getPresignedUploadUrl(
     appId: string,
@@ -138,6 +171,15 @@ export class FilesService {
       size: s3Metadata.contentLength,
     });
 
+    // Queue thumbnail generation for images
+    if (upload.contentType.startsWith('image/')) {
+      try {
+        await this.processing.generateThumbnail(file.id);
+      } catch (error) {
+        this.logger.warn(`Failed to queue thumbnail for ${file.id}: ${(error as Error).message}`);
+      }
+    }
+
     return this.formatFileResponse(file, bucket.garageBucketId);
   }
 
@@ -154,8 +196,11 @@ export class FilesService {
       );
     }
 
+    // Fix multer's Latin-1 filename encoding for non-ASCII characters (Thai, Chinese, etc.)
+    const originalName = this.fixFilenameEncoding(file.originalname);
+
     const bucket = await this.getBucketWithQuotaCheck(appId, bucketId, file.size);
-    const key = dto.key || this.generateFileKey(file.mimetype, file.originalname);
+    const key = dto.key || this.generateFileKey(file.mimetype, originalName);
 
     const { etag } = await this.s3.uploadFile(
       bucket.garageBucketId,
@@ -169,7 +214,7 @@ export class FilesService {
       data: {
         bucketId,
         key,
-        originalName: file.originalname,
+        originalName,
         mimeType: file.mimetype,
         sizeBytes: BigInt(file.size),
         checksum: this.calculateMd5(file.buffer),
@@ -187,6 +232,15 @@ export class FilesService {
       bucket: bucket.name,
       size: file.size,
     });
+
+    // Queue thumbnail generation for images
+    if (file.mimetype.startsWith('image/')) {
+      try {
+        await this.processing.generateThumbnail(fileRecord.id);
+      } catch (error) {
+        this.logger.warn(`Failed to queue thumbnail for ${fileRecord.id}: ${(error as Error).message}`);
+      }
+    }
 
     return this.formatFileResponse(fileRecord, bucket.garageBucketId);
   }
@@ -216,39 +270,103 @@ export class FilesService {
 
     await this.logAccess(appId, 'DOWNLOAD', 'FILE', fileId);
 
+    // Trigger webhook
+    await this.webhooks.trigger(appId, 'file.downloaded', {
+      fileId,
+      key: file.key,
+      bucket: file.bucket.name,
+      downloadCount: file.downloadCount + 1,
+    });
+
     return {
       url,
       expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
     };
   }
 
-  async deleteFile(appId: string, bucketId: string, fileId: string) {
+  async deleteFile(
+    appId: string,
+    bucketId: string,
+    fileId: string,
+    options: { permanent?: boolean; deletedBy?: string } = {},
+  ) {
+    const { permanent = false, deletedBy = 'admin' } = options;
     const file = await this.getFileWithBucket(bucketId, fileId);
 
-    // Delete main file from S3
-    await this.s3.deleteFile(file.bucket.garageBucketId, file.key);
+    if (permanent) {
+      // Permanent delete: remove from S3 and hard delete from DB
+      await this.s3.deleteFile(file.bucket.garageBucketId, file.key);
 
-    // Delete thumbnail from S3 if it exists
-    if (file.thumbnailKey) {
-      try {
-        await this.s3.deleteFile(file.bucket.garageBucketId, file.thumbnailKey);
-      } catch (error) {
-        // Log but don't fail if thumbnail deletion fails
-        this.logger.warn(`Failed to delete thumbnail for file ${fileId}: ${(error as Error).message}`);
+      // Delete thumbnail from S3 if it exists
+      if (file.thumbnailKey) {
+        try {
+          await this.s3.deleteFile(file.bucket.garageBucketId, file.thumbnailKey);
+        } catch (error) {
+          this.logger.warn(`Failed to delete thumbnail for file ${fileId}: ${(error as Error).message}`);
+        }
       }
+
+      await this.prisma.file.delete({ where: { id: fileId } });
+
+      // Only decrement quota if file wasn't already soft-deleted
+      if (!file.deletedAt) {
+        await this.updateUsageStats(appId, bucketId, -file.sizeBytes);
+      }
+
+      await this.webhooks.trigger(appId, 'file.purged', {
+        fileId,
+        key: file.key,
+        bucket: file.bucket.name,
+        reason: 'manual',
+      });
+
+      this.eventEmitter.emit('audit.log', {
+        actorType: 'ADMIN_USER',
+        action: 'FILE_PERMANENTLY_DELETED',
+        resourceType: 'FILE',
+        resourceId: fileId,
+        resourceName: file.originalName,
+        metadata: { bucketId, key: file.key },
+      });
+    } else {
+      // Soft delete: mark as deleted and free quota
+      await this.prisma.file.update({
+        where: { id: fileId },
+        data: {
+          deletedAt: new Date(),
+          deletedBy,
+        },
+      });
+
+      await this.updateUsageStats(appId, bucketId, -file.sizeBytes);
+
+      await this.webhooks.trigger(appId, 'file.deleted', {
+        fileId,
+        key: file.key,
+        bucket: file.bucket.name,
+        deletedAt: new Date().toISOString(),
+      });
+
+      this.eventEmitter.emit('audit.log', {
+        actorType: deletedBy === 'system' ? 'SYSTEM' : 'ADMIN_USER',
+        actorId: deletedBy,
+        action: 'FILE_SOFT_DELETED',
+        resourceType: 'FILE',
+        resourceId: fileId,
+        resourceName: file.originalName,
+        metadata: { bucketId, key: file.key },
+      });
+
+      this.logger.log(`File ${fileId} soft-deleted by ${deletedBy}`);
     }
-
-    await this.prisma.file.delete({ where: { id: fileId } });
-    await this.updateUsageStats(appId, bucketId, -file.sizeBytes);
-
-    await this.webhooks.trigger(appId, 'file.deleted', {
-      fileId,
-      key: file.key,
-      bucket: file.bucket.name,
-    });
   }
 
-  async bulkDelete(appId: string, bucketId: string, fileIds: string[]) {
+  async bulkDelete(
+    appId: string,
+    bucketId: string,
+    fileIds: string[],
+    options: { permanent?: boolean; deletedBy?: string } = {},
+  ) {
     const bucket = await this.prisma.bucket.findFirst({
       where: { id: bucketId, applicationId: appId },
     });
@@ -262,7 +380,7 @@ export class FilesService {
 
     for (const fileId of fileIds) {
       try {
-        await this.deleteFile(appId, bucketId, fileId);
+        await this.deleteFile(appId, bucketId, fileId, options);
         deleted.push(fileId);
       } catch {
         failed.push(fileId);
@@ -309,7 +427,7 @@ export class FilesService {
       throw new NotFoundException('Bucket not found');
     }
 
-    const where: any = { bucketId };
+    const where: any = { bucketId, deletedAt: null };
     if (prefix) {
       where.OR = [
         { key: { contains: prefix, mode: 'insensitive' } },
@@ -603,6 +721,12 @@ export class FilesService {
       totalInS3 += result.files.length;
 
       for (const s3File of result.files) {
+        // Skip system files (thumbnails, etc.)
+        if (s3File.key.startsWith('_thumbnails/') || s3File.key.startsWith('_system/')) {
+          skipped++;
+          continue;
+        }
+
         if (existingKeys.has(s3File.key)) {
           skipped++;
           continue;
@@ -659,5 +783,284 @@ export class FilesService {
       totalInS3,
       newUsedBytes: Number(totalNewBytes),
     };
+  }
+
+  // Copy file to another bucket (or same bucket with different key)
+  async copyFile(appId: string, bucketId: string, fileId: string, dto: CopyFileDto) {
+    const sourceFile = await this.getFileWithBucket(bucketId, fileId);
+
+    // Verify source bucket belongs to app
+    const sourceBucket = await this.prisma.bucket.findFirst({
+      where: { id: bucketId, applicationId: appId },
+    });
+    if (!sourceBucket) {
+      throw new NotFoundException('Source bucket not found');
+    }
+
+    // Verify target bucket belongs to app
+    const targetBucket = await this.prisma.bucket.findFirst({
+      where: { id: dto.targetBucketId, applicationId: appId },
+      include: { application: true },
+    });
+    if (!targetBucket) {
+      throw new NotFoundException('Target bucket not found');
+    }
+
+    // Check quota
+    const newUsage = Number(targetBucket.application.usedStorageBytes) + Number(sourceFile.sizeBytes);
+    if (newUsage > Number(targetBucket.application.maxStorageBytes)) {
+      throw new ForbiddenException('Application storage quota exceeded');
+    }
+
+    const newKey = dto.newKey || sourceFile.key;
+
+    // Copy file in S3
+    await this.s3.copyFile(
+      sourceBucket.garageBucketId,
+      sourceFile.key,
+      targetBucket.garageBucketId,
+      newKey,
+    );
+
+    // Create new file record
+    const newFile = await this.prisma.file.create({
+      data: {
+        bucketId: dto.targetBucketId,
+        key: newKey,
+        originalName: sourceFile.originalName,
+        mimeType: sourceFile.mimeType,
+        sizeBytes: sourceFile.sizeBytes,
+        etag: sourceFile.etag,
+        metadata: sourceFile.metadata as any,
+        isPublic: sourceFile.isPublic,
+      },
+    });
+
+    // Update usage stats
+    await this.updateUsageStats(appId, dto.targetBucketId, sourceFile.sizeBytes);
+
+    // Trigger webhook
+    await this.webhooks.trigger(appId, 'file.copied', {
+      sourceFileId: fileId,
+      newFileId: newFile.id,
+      sourceBucket: sourceBucket.name,
+      targetBucket: targetBucket.name,
+    });
+
+    return this.formatFileResponse(newFile, targetBucket.garageBucketId);
+  }
+
+  // Move file to another bucket
+  async moveFile(appId: string, bucketId: string, fileId: string, dto: MoveFileDto) {
+    const sourceFile = await this.getFileWithBucket(bucketId, fileId);
+
+    // Can't move to same bucket
+    if (dto.targetBucketId === bucketId && !dto.newKey) {
+      throw new BadRequestException('Must specify newKey when moving within same bucket');
+    }
+
+    // Verify source bucket belongs to app
+    const sourceBucket = await this.prisma.bucket.findFirst({
+      where: { id: bucketId, applicationId: appId },
+    });
+    if (!sourceBucket) {
+      throw new NotFoundException('Source bucket not found');
+    }
+
+    // Verify target bucket belongs to app
+    const targetBucket = await this.prisma.bucket.findFirst({
+      where: { id: dto.targetBucketId, applicationId: appId },
+    });
+    if (!targetBucket) {
+      throw new NotFoundException('Target bucket not found');
+    }
+
+    const newKey = dto.newKey || sourceFile.key;
+
+    // Copy file in S3 to new location
+    await this.s3.copyFile(
+      sourceBucket.garageBucketId,
+      sourceFile.key,
+      targetBucket.garageBucketId,
+      newKey,
+    );
+
+    // Delete old file from S3
+    await this.s3.deleteFile(sourceBucket.garageBucketId, sourceFile.key);
+
+    // Update file record
+    const updatedFile = await this.prisma.file.update({
+      where: { id: fileId },
+      data: {
+        bucketId: dto.targetBucketId,
+        key: newKey,
+      },
+    });
+
+    // Update usage stats (subtract from source, add to target)
+    if (dto.targetBucketId !== bucketId) {
+      await this.prisma.bucket.update({
+        where: { id: bucketId },
+        data: { usedBytes: { decrement: sourceFile.sizeBytes } },
+      });
+      await this.prisma.bucket.update({
+        where: { id: dto.targetBucketId },
+        data: { usedBytes: { increment: sourceFile.sizeBytes } },
+      });
+    }
+
+    // Trigger webhook
+    await this.webhooks.trigger(appId, 'file.moved', {
+      fileId,
+      fromBucket: sourceBucket.name,
+      toBucket: targetBucket.name,
+      newKey,
+    });
+
+    return this.formatFileResponse(updatedFile, targetBucket.garageBucketId);
+  }
+
+  // Advanced search across all buckets
+  async searchFiles(appId: string, dto: SearchFilesDto) {
+    const { page = 1, limit = 50 } = dto;
+
+    // Build where clause - exclude soft-deleted files
+    const where: any = {
+      bucket: { applicationId: appId },
+      deletedAt: null,
+    };
+
+    // Filter by specific buckets if provided
+    if (dto.bucketIds?.length) {
+      where.bucketId = { in: dto.bucketIds };
+    }
+
+    // Text search in key, originalName
+    if (dto.query) {
+      where.OR = [
+        { key: { contains: dto.query, mode: 'insensitive' } },
+        { originalName: { contains: dto.query, mode: 'insensitive' } },
+      ];
+    }
+
+    // Filter by tags
+    if (dto.tagIds?.length) {
+      where.tags = {
+        some: { tagId: { in: dto.tagIds } },
+      };
+    }
+
+    // Filter by MIME types
+    if (dto.mimeTypes?.length) {
+      where.OR = where.OR || [];
+      for (const mimeType of dto.mimeTypes) {
+        where.OR.push({ mimeType: { startsWith: mimeType } });
+      }
+    }
+
+    // Date filters
+    if (dto.dateFrom || dto.dateTo) {
+      where.createdAt = {};
+      if (dto.dateFrom) where.createdAt.gte = new Date(dto.dateFrom);
+      if (dto.dateTo) where.createdAt.lte = new Date(dto.dateTo);
+    }
+
+    // Size filters
+    if (dto.sizeMin !== undefined || dto.sizeMax !== undefined) {
+      where.sizeBytes = {};
+      if (dto.sizeMin !== undefined) where.sizeBytes.gte = BigInt(dto.sizeMin);
+      if (dto.sizeMax !== undefined) where.sizeBytes.lte = BigInt(dto.sizeMax);
+    }
+
+    const [files, total] = await Promise.all([
+      this.prisma.file.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          bucket: { select: { id: true, name: true, garageBucketId: true } },
+          tags: { include: { tag: true } },
+        },
+      }),
+      this.prisma.file.count({ where }),
+    ]);
+
+    // Format results
+    const data = await Promise.all(
+      files.map(async (f) => {
+        const formatted = await this.formatFileResponse(f, f.bucket.garageBucketId);
+        return {
+          ...formatted,
+          bucket: { id: f.bucket.id, name: f.bucket.name },
+        };
+      }),
+    );
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  // Get thumbnail URL for a file
+  async getThumbnailUrl(appId: string, bucketId: string, fileId: string) {
+    const file = await this.getFileWithBucket(bucketId, fileId);
+
+    // Verify bucket belongs to app
+    const bucket = await this.prisma.bucket.findFirst({
+      where: { id: bucketId, applicationId: appId },
+    });
+    if (!bucket) {
+      throw new NotFoundException('Bucket not found');
+    }
+
+    if (!file.thumbnailKey) {
+      if (file.thumbnailStatus === 'PENDING') {
+        return { status: 'pending', url: null };
+      }
+      if (file.thumbnailStatus === 'FAILED') {
+        return { status: 'failed', url: null };
+      }
+      return { status: 'not_available', url: null };
+    }
+
+    const url = await this.s3.getPresignedDownloadUrl(
+      bucket.garageBucketId,
+      file.thumbnailKey,
+      3600,
+    );
+
+    return {
+      status: 'available',
+      url,
+      expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+    };
+  }
+
+  // Request thumbnail regeneration
+  async regenerateThumbnail(appId: string, bucketId: string, fileId: string) {
+    const file = await this.getFileWithBucket(bucketId, fileId);
+
+    // Verify bucket belongs to app
+    const bucket = await this.prisma.bucket.findFirst({
+      where: { id: bucketId, applicationId: appId },
+    });
+    if (!bucket) {
+      throw new NotFoundException('Bucket not found');
+    }
+
+    // Check if file is an image
+    if (!file.mimeType.startsWith('image/')) {
+      throw new BadRequestException('Thumbnail generation only available for images');
+    }
+
+    // Use ProcessingService to queue thumbnail generation
+    return this.processing.generateThumbnail(fileId);
   }
 }

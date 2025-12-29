@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { S3Service } from '../../services/s3/s3.service';
 import { GarageAdminService } from '../../services/s3/garage-admin.service';
+import { WebhooksService } from '../webhooks/webhooks.service';
 import { CreateBucketDto } from './dto/create-bucket.dto';
 import { UpdateBucketDto } from './dto/update-bucket.dto';
 import { v4 as uuidv4 } from 'uuid';
@@ -20,6 +21,7 @@ export class BucketsService {
     private prisma: PrismaService,
     private s3: S3Service,
     private garageAdmin: GarageAdminService,
+    private webhooks: WebhooksService,
   ) {}
 
   async findAll(appId: string, query: { page?: number; limit?: number }) {
@@ -121,6 +123,13 @@ export class BucketsService {
       },
     });
 
+    // Trigger webhook
+    await this.webhooks.trigger(appId, 'bucket.created', {
+      bucketId: bucket.id,
+      name: bucket.name,
+      garageBucketId: bucket.garageBucketId,
+    });
+
     return {
       id: bucket.id,
       name: bucket.name,
@@ -202,6 +211,12 @@ export class BucketsService {
 
     // Delete bucket record
     await this.prisma.bucket.delete({ where: { id: bucketId } });
+
+    // Trigger webhook
+    await this.webhooks.trigger(appId, 'bucket.deleted', {
+      bucketId: bucket.id,
+      name: bucket.name,
+    });
   }
 
   /**

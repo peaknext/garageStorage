@@ -297,4 +297,98 @@ export class FoldersService {
 
     return breadcrumb;
   }
+
+  // External API methods with app validation
+
+  private async validateBucketOwnership(appId: string, bucketId: string) {
+    const bucket = await this.prisma.bucket.findUnique({
+      where: { id: bucketId },
+      select: { applicationId: true },
+    });
+    if (!bucket) {
+      throw new NotFoundException('Bucket not found');
+    }
+    if (bucket.applicationId !== appId) {
+      throw new NotFoundException('Bucket not found');
+    }
+  }
+
+  private async validateFolderOwnership(appId: string, folderId: string) {
+    const folder = await this.prisma.virtualFolder.findUnique({
+      where: { id: folderId },
+      include: { bucket: { select: { applicationId: true } } },
+    });
+    if (!folder) {
+      throw new NotFoundException('Folder not found');
+    }
+    if (folder.bucket.applicationId !== appId) {
+      throw new NotFoundException('Folder not found');
+    }
+    return folder;
+  }
+
+  async findAllByBucketWithAppValidation(appId: string, bucketId: string) {
+    await this.validateBucketOwnership(appId, bucketId);
+    return this.findAllByBucket(bucketId);
+  }
+
+  async createWithAppValidation(appId: string, bucketId: string, dto: CreateFolderDto) {
+    await this.validateBucketOwnership(appId, bucketId);
+    return this.create(bucketId, dto);
+  }
+
+  async updateWithAppValidation(appId: string, id: string, dto: { name?: string; parentId?: string }) {
+    await this.validateFolderOwnership(appId, id);
+    return this.update(id, dto);
+  }
+
+  async deleteWithAppValidation(appId: string, id: string) {
+    await this.validateFolderOwnership(appId, id);
+    return this.delete(id);
+  }
+
+  async getFilesInFolderWithAppValidation(appId: string, folderId: string, page = 1, limit = 50) {
+    await this.validateFolderOwnership(appId, folderId);
+    return this.getFilesInFolder(folderId, page, limit);
+  }
+
+  async getFolderBreadcrumbWithAppValidation(appId: string, folderId: string) {
+    await this.validateFolderOwnership(appId, folderId);
+    return this.getFolderBreadcrumb(folderId);
+  }
+
+  async addFileToFolderWithAppValidation(appId: string, fileId: string, folderId: string) {
+    // Validate file belongs to app
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      include: { bucket: { select: { applicationId: true } } },
+    });
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+    if (file.bucket.applicationId !== appId) {
+      throw new NotFoundException('File not found');
+    }
+
+    // Validate folder belongs to app
+    await this.validateFolderOwnership(appId, folderId);
+
+    return this.addFileToFolder(fileId, folderId);
+  }
+
+  async removeFileFromFolderWithAppValidation(appId: string, fileId: string, folderId: string) {
+    // Validate file belongs to app
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      include: { bucket: { select: { applicationId: true } } },
+    });
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+    if (file.bucket.applicationId !== appId) {
+      throw new NotFoundException('File not found');
+    }
+
+    return this.removeFileFromFolder(fileId, folderId);
+  }
 }

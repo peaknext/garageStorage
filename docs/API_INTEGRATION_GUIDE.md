@@ -14,12 +14,15 @@ This guide provides everything external application development teams need to in
 2. [Authentication](#authentication)
 3. [Bucket Operations](#bucket-operations)
 4. [File Operations](#file-operations)
-5. [File Sharing](#file-sharing)
-6. [Webhooks](#webhooks)
-7. [Analytics](#analytics)
-8. [Error Handling](#error-handling)
-9. [Storage Limits & Quotas](#storage-limits--quotas)
-10. [Code Examples](#code-examples)
+5. [Recycle Bin](#recycle-bin)
+6. [Tags](#tags)
+7. [Folders](#folders)
+8. [File Sharing](#file-sharing)
+9. [Webhooks](#webhooks)
+10. [Analytics](#analytics)
+11. [Error Handling](#error-handling)
+12. [Storage Limits & Quotas](#storage-limits--quotas)
+13. [Code Examples](#code-examples)
 
 ---
 
@@ -429,11 +432,18 @@ Content-Type: application/json
 }
 ```
 
-### Delete File
+### Delete File (Soft Delete)
+
+By default, deleting a file moves it to the recycle bin where it will be automatically purged after 30 days. Use `?permanent=true` to skip the recycle bin and permanently delete immediately.
 
 ```http
-DELETE /buckets/{bucketId}/files/{fileId}
+DELETE /buckets/{bucketId}/files/{fileId}?permanent=false
 ```
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `permanent` | boolean | false | If true, permanently delete (skip recycle bin) |
 
 **Response:** `204 No Content`
 
@@ -447,9 +457,16 @@ Content-Type: application/json
 **Request Body:**
 ```json
 {
-  "fileIds": ["uuid1", "uuid2", "uuid3"]
+  "fileIds": ["uuid1", "uuid2", "uuid3"],
+  "permanent": false
 }
 ```
+
+**Parameters:**
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `fileIds` | array | Required | List of file IDs to delete |
+| `permanent` | boolean | false | If true, permanently delete (skip recycle bin) |
 
 **Response:**
 ```json
@@ -457,6 +474,460 @@ Content-Type: application/json
   "deleted": 2,
   "failed": ["uuid3"]
 }
+```
+
+### Copy File
+
+Copy a file to another bucket (or same bucket with different key).
+
+```http
+POST /buckets/{bucketId}/files/{fileId}/copy
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "targetBucketId": "target-bucket-uuid",
+  "newKey": "path/to/copied-file.pdf"
+}
+```
+
+**Response:** Returns the new file object
+
+### Move File
+
+Move a file to another bucket.
+
+```http
+POST /buckets/{bucketId}/files/{fileId}/move
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "targetBucketId": "target-bucket-uuid",
+  "newKey": "path/to/moved-file.pdf"
+}
+```
+
+**Response:** Returns the updated file object
+
+### Search Files
+
+Search across all buckets in your application.
+
+```http
+POST /files/search
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "query": "report",
+  "bucketIds": ["bucket-uuid-1", "bucket-uuid-2"],
+  "tagIds": ["tag-uuid-1"],
+  "mimeTypes": ["image/", "application/pdf"],
+  "dateFrom": "2024-01-01T00:00:00.000Z",
+  "dateTo": "2024-12-31T23:59:59.999Z",
+  "sizeMin": 1024,
+  "sizeMax": 10485760,
+  "page": 1,
+  "limit": 50
+}
+```
+
+**Response:**
+```json
+{
+  "data": [
+    {
+      "id": "file-uuid",
+      "key": "path/to/file.pdf",
+      "originalName": "report.pdf",
+      "mimeType": "application/pdf",
+      "sizeBytes": 1048576,
+      "bucket": {
+        "id": "bucket-uuid",
+        "name": "documents"
+      },
+      "tags": [
+        { "id": "tag-id", "name": "important", "color": "#ff0000" }
+      ],
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "meta": {
+    "total": 10,
+    "page": 1,
+    "limit": 50,
+    "totalPages": 1
+  }
+}
+```
+
+### Get Thumbnail
+
+Get thumbnail URL for an image file.
+
+```http
+GET /buckets/{bucketId}/files/{fileId}/thumbnail
+```
+
+**Response:**
+```json
+{
+  "status": "available",
+  "url": "https://presigned-thumbnail-url...",
+  "expiresAt": "2024-01-01T01:00:00.000Z"
+}
+```
+
+**Status Values:** `available`, `pending`, `failed`, `not_available`
+
+### Regenerate Thumbnail
+
+Request thumbnail regeneration for an image file.
+
+```http
+POST /buckets/{bucketId}/files/{fileId}/thumbnail/regenerate
+```
+
+**Response:**
+```json
+{
+  "status": "queued",
+  "fileId": "file-uuid"
+}
+```
+
+---
+
+## Recycle Bin
+
+Deleted files are moved to the recycle bin for 30 days before being permanently deleted. This allows recovery of accidentally deleted files.
+
+### List Deleted Files
+
+```http
+GET /recycle-bin?page=1&limit=50
+```
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | number | 1 | Page number |
+| `limit` | number | 50 | Items per page |
+| `bucketId` | string | - | Filter by bucket |
+
+**Response:**
+```json
+{
+  "data": [
+    {
+      "id": "file-uuid",
+      "key": "2024/01/01/uuid.pdf",
+      "originalName": "document.pdf",
+      "mimeType": "application/pdf",
+      "sizeBytes": 1048576,
+      "deletedAt": "2024-01-15T00:00:00.000Z",
+      "deletedBy": "api",
+      "daysRemaining": 15,
+      "bucket": {
+        "id": "bucket-uuid",
+        "name": "documents"
+      },
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "meta": {
+    "total": 10,
+    "page": 1,
+    "limit": 50,
+    "totalPages": 1
+  }
+}
+```
+
+### Restore File
+
+Restore a file from the recycle bin. This will check if there's enough quota available before restoring.
+
+```http
+POST /recycle-bin/{fileId}/restore
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "fileId": "file-uuid"
+}
+```
+
+**Possible Errors:**
+- `403 Forbidden`: Storage quota exceeded, cannot restore
+
+### Permanently Delete File
+
+Remove a file from the recycle bin immediately (cannot be undone).
+
+```http
+DELETE /recycle-bin/{fileId}
+```
+
+**Response:** `204 No Content`
+
+### Empty Recycle Bin
+
+Permanently delete all files in the recycle bin.
+
+```http
+POST /recycle-bin/purge
+```
+
+**Response:**
+```json
+{
+  "deletedCount": 15,
+  "freedBytes": 15728640,
+  "failed": []
+}
+```
+
+### List Deleted Files in Bucket
+
+```http
+GET /buckets/{bucketId}/recycle-bin?page=1&limit=50
+```
+
+**Response:** Same format as global recycle bin list.
+
+### Empty Bucket Recycle Bin
+
+```http
+POST /buckets/{bucketId}/recycle-bin/purge
+```
+
+**Response:** Same format as global purge.
+
+---
+
+## Tags
+
+Organize files with labels.
+
+### List Tags
+
+```http
+GET /tags
+```
+
+**Response:**
+```json
+{
+  "data": [
+    {
+      "id": "tag-uuid",
+      "name": "important",
+      "color": "#ff0000",
+      "_count": { "files": 15 }
+    }
+  ]
+}
+```
+
+### Create Tag
+
+```http
+POST /tags
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "name": "important",
+  "color": "#ff0000"
+}
+```
+
+### Update Tag
+
+```http
+PATCH /tags/{tagId}
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "name": "critical",
+  "color": "#ff5500"
+}
+```
+
+### Delete Tag
+
+```http
+DELETE /tags/{tagId}
+```
+
+**Response:** `204 No Content`
+
+### Get Files by Tag
+
+```http
+GET /tags/{tagId}/files?page=1&limit=50
+```
+
+### Get File Tags
+
+```http
+GET /buckets/{bucketId}/files/{fileId}/tags
+```
+
+### Add Tags to File
+
+```http
+POST /buckets/{bucketId}/files/{fileId}/tags
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "tagIds": ["tag-uuid-1", "tag-uuid-2"]
+}
+```
+
+### Remove Tag from File
+
+```http
+DELETE /buckets/{bucketId}/files/{fileId}/tags/{tagId}
+```
+
+### Bulk Tag Files
+
+Add tags to multiple files at once.
+
+```http
+POST /tags/bulk
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "fileIds": ["file-uuid-1", "file-uuid-2", "file-uuid-3"],
+  "tagIds": ["tag-uuid-1", "tag-uuid-2"]
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "filesTagged": 3,
+  "tagsAdded": 2
+}
+```
+
+---
+
+## Folders
+
+Organize files into virtual folder hierarchies.
+
+### List Folders
+
+```http
+GET /buckets/{bucketId}/folders
+```
+
+**Response:** Returns folder tree structure.
+
+### Create Folder
+
+```http
+POST /buckets/{bucketId}/folders
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "name": "Documents",
+  "parentId": "parent-folder-uuid"
+}
+```
+
+### Update Folder
+
+Rename or move a folder.
+
+```http
+PATCH /folders/{folderId}
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "name": "New Name",
+  "parentId": "new-parent-folder-uuid"
+}
+```
+
+### Delete Folder
+
+```http
+DELETE /folders/{folderId}
+```
+
+> **Warning:** Deleting a folder deletes all subfolders and removes file associations.
+
+### Get Files in Folder
+
+```http
+GET /folders/{folderId}/files?page=1&limit=50
+```
+
+### Get Folder Breadcrumb
+
+```http
+GET /folders/{folderId}/breadcrumb
+```
+
+**Response:**
+```json
+[
+  { "id": "root-uuid", "name": "Root", "path": "/Root/" },
+  { "id": "parent-uuid", "name": "Parent", "path": "/Root/Parent/" },
+  { "id": "current-uuid", "name": "Current", "path": "/Root/Parent/Current/" }
+]
+```
+
+### Add File to Folder
+
+```http
+POST /buckets/{bucketId}/files/{fileId}/folders
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "folderId": "folder-uuid"
+}
+```
+
+### Remove File from Folder
+
+```http
+DELETE /buckets/{bucketId}/files/{fileId}/folders/{folderId}
 ```
 
 ---
@@ -534,10 +1005,23 @@ Receive real-time notifications when events occur in your storage.
 
 ### Supported Events
 
-| Event | Description |
-|-------|-------------|
-| `file.uploaded` | Triggered when a file is uploaded |
-| `file.deleted` | Triggered when a file is deleted |
+| Event | Description | Payload |
+|-------|-------------|---------|
+| `file.uploaded` | File was uploaded | `{fileId, key, bucket, size}` |
+| `file.deleted` | File was soft deleted (moved to recycle bin) | `{fileId, key, bucket, deletedAt}` |
+| `file.restored` | File was restored from recycle bin | `{fileId, key, bucket, restoredAt}` |
+| `file.purged` | File was permanently deleted | `{fileId, key, bucket, reason}` |
+| `file.downloaded` | File download URL was generated | `{fileId, key, bucket, downloadCount}` |
+| `file.copied` | File was copied | `{sourceFileId, newFileId, sourceBucket, targetBucket}` |
+| `file.moved` | File was moved | `{fileId, fromBucket, toBucket, newKey}` |
+| `bucket.created` | Bucket was created | `{bucketId, name, garageBucketId}` |
+| `bucket.deleted` | Bucket was deleted | `{bucketId, name}` |
+| `share.created` | Share link was created | `{shareId, fileId, fileName, expiresAt, shareUrl}` |
+| `share.accessed` | Share link was used | `{shareId, fileId, fileName, downloadCount, accessedAt}` |
+| `quota.warning` | Storage warning threshold hit | `{level, usage, threshold, applicationName}` |
+| `quota.critical` | Storage critical threshold hit | `{level, usage, threshold, applicationName}` |
+
+> **Note:** The `reason` field in `file.purged` events can be: `manual`, `auto_purge_expired`, or `empty_recycle_bin`.
 
 ### Create Webhook
 

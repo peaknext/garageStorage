@@ -51,10 +51,14 @@ const AVAILABLE_EVENTS = [
   { value: 'file.uploaded', label: 'File Uploaded' },
   { value: 'file.deleted', label: 'File Deleted' },
   { value: 'file.downloaded', label: 'File Downloaded' },
+  { value: 'file.copied', label: 'File Copied' },
+  { value: 'file.moved', label: 'File Moved' },
   { value: 'bucket.created', label: 'Bucket Created' },
   { value: 'bucket.deleted', label: 'Bucket Deleted' },
   { value: 'share.created', label: 'Share Created' },
   { value: 'share.accessed', label: 'Share Accessed' },
+  { value: 'quota.warning', label: 'Quota Warning' },
+  { value: 'quota.critical', label: 'Quota Critical' },
 ];
 
 export default function WebhooksPage() {

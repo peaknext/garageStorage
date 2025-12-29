@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { S3Service } from '../../services/s3/s3.service';
+import { WebhooksService } from '../webhooks/webhooks.service';
 import { CreateShareDto } from './dto/create-share.dto';
 import * as bcrypt from 'bcrypt';
 
@@ -14,6 +15,7 @@ export class SharesService {
   constructor(
     private prisma: PrismaService,
     private s3: S3Service,
+    private webhooks: WebhooksService,
   ) {}
 
   async createShare(fileId: string, dto: CreateShareDto) {
@@ -47,6 +49,15 @@ export class SharesService {
 
     const baseUrl = process.env.API_BASE_URL || 'http://localhost:4001';
     const shareUrl = `${baseUrl}/api/v1/shares/${share.token}/download`;
+
+    // Trigger webhook
+    await this.webhooks.trigger(file.bucket.applicationId, 'share.created', {
+      shareId: share.id,
+      fileId,
+      fileName: file.originalName,
+      expiresAt: share.expiresAt,
+      shareUrl,
+    });
 
     return {
       id: share.id,
@@ -149,6 +160,15 @@ export class SharesService {
     await this.prisma.fileShare.update({
       where: { id: share.id },
       data: { downloadCount: { increment: 1 } },
+    });
+
+    // Trigger webhook
+    await this.webhooks.trigger(share.file.bucket.applicationId, 'share.accessed', {
+      shareId: share.id,
+      fileId: share.fileId,
+      fileName: share.file.originalName,
+      downloadCount: share.downloadCount + 1,
+      accessedAt: new Date().toISOString(),
     });
 
     // Generate download URL

@@ -77,21 +77,21 @@ export default function TagsPage() {
   const [editShowColorPicker, setEditShowColorPicker] = useState(false);
 
   // Fetch applications
-  const { data: applicationsData, isLoading: appsLoading } = useQuery({
+  const { data: applications, isLoading: appsLoading } = useQuery({
     queryKey: ['applications'],
     queryFn: async () => {
       const { data } = await apiClient.get<{ data: Application[] }>('/admin/applications', {
         params: { limit: 100 },
       });
-      return data;
+      return data.data;
     },
   });
 
   // Fetch tags for all applications
   const { data: tagsData, isLoading: tagsLoading } = useQuery({
-    queryKey: ['all-tags'],
+    queryKey: ['all-tags', applications],
     queryFn: async () => {
-      const apps = applicationsData?.data || [];
+      const apps = applications || [];
       const allTags: Record<string, TagItem[]> = {};
 
       for (const app of apps) {
@@ -101,7 +101,7 @@ export default function TagsPage() {
 
       return allTags;
     },
-    enabled: !!applicationsData?.data?.length,
+    enabled: !!applications?.length,
   });
 
   const createMutation = useMutation({
@@ -187,7 +187,7 @@ export default function TagsPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {applicationsData?.data?.map((app) => {
+          {applications?.map((app) => {
             const appTags = tagsData?.[app.id] || [];
             const isExpanded = expandedApps.has(app.id);
 
@@ -410,7 +410,7 @@ export default function TagsPage() {
             );
           })}
 
-          {(!applicationsData?.data || applicationsData.data.length === 0) && (
+          {(!applications || applications.length === 0) && (
             <div className="text-center py-16">
               <Tag className="h-16 w-16 text-[#c4bbd3]/30 mx-auto mb-4" />
               <p className="text-lg font-medium text-white mb-2">No applications found</p>

@@ -12,7 +12,9 @@
       "Bash(findstr:*)",
       "Bash(npx prisma migrate:*)",
       "Bash(npx tsc:*)",
-      "Bash(docker ps:*)"
+      "Bash(docker ps:*)",
+      "Bash(pushd \"a:\\\\garageStorage\\\\backend\")",
+      "Bash(popd:*)"
     ]
   }
 }

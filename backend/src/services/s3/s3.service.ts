@@ -9,6 +9,7 @@ import {
   HeadObjectCommand,
   CreateBucketCommand,
   DeleteBucketCommand,
+  CopyObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -91,12 +92,28 @@ export class S3Service {
     expiresIn: number = 3600,
     filename?: string,
   ): Promise<string> {
+    let contentDisposition: string | undefined;
+
+    if (filename) {
+      // Check if filename contains non-ASCII characters
+      const hasNonAscii = /[^\x00-\x7F]/.test(filename);
+
+      if (hasNonAscii) {
+        // RFC 5987 encoding for non-ASCII filenames (Thai, Chinese, etc.)
+        // Include ASCII fallback + UTF-8 encoded filename
+        const asciiFilename = filename.replace(/[^\x00-\x7F]/g, '_');
+        const encodedFilename = encodeURIComponent(filename);
+        contentDisposition = `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`;
+      } else {
+        // Simple ASCII filename
+        contentDisposition = `attachment; filename="${filename}"`;
+      }
+    }
+
     const command = new GetObjectCommand({
       Bucket: bucket,
       Key: key,
-      ResponseContentDisposition: filename
-        ? `attachment; filename="${encodeURIComponent(filename)}"`
-        : undefined,
+      ResponseContentDisposition: contentDisposition,
     });
 
     return getSignedUrl(this.s3PublicClient, command, { expiresIn });
@@ -267,5 +284,25 @@ export class S3Service {
       })),
       nextToken: response.NextContinuationToken,
     };
+  }
+
+  /**
+   * Copy file from one location to another (can be same or different bucket)
+   */
+  async copyFile(
+    sourceBucket: string,
+    sourceKey: string,
+    targetBucket: string,
+    targetKey: string,
+  ): Promise<{ etag: string }> {
+    const command = new CopyObjectCommand({
+      Bucket: targetBucket,
+      Key: targetKey,
+      CopySource: `${sourceBucket}/${sourceKey}`,
+    });
+
+    const response = await this.s3Client.send(command);
+    this.logger.log(`File copied: ${sourceBucket}/${sourceKey} -> ${targetBucket}/${targetKey}`);
+    return { etag: response.CopyObjectResult?.ETag || '' };
   }
 }

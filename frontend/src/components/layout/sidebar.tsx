@@ -16,6 +16,7 @@ import {
   FileX,
   Tag,
   Folder,
+  Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -27,6 +28,7 @@ const navItems = [
   { href: '/tags', label: 'Tags', icon: Tag },
   { href: '/shares', label: 'Share Links', icon: Link2 },
   { href: '/orphan-files', label: 'Orphan Files', icon: FileX },
+  { href: '/recycle-bin', label: 'Recycle Bin', icon: Trash2 },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/audit', label: 'Audit Logs', icon: ScrollText },
   { href: '/policies', label: 'Policies', icon: Shield },

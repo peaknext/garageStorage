@@ -112,6 +112,10 @@ model File {
   // Full-text search
   searchVector String? @map("search_vector")
 
+  // Soft delete fields
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") // admin user ID, app ID, or "system"
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -126,6 +130,7 @@ model File {
   @@index([bucketId])
   @@index([mimeType])
   @@index([uploadedBy])
+  @@index([deletedAt])
   @@map("files")
 }
 
@@ -331,6 +336,7 @@ enum PolicyType {
   SIZE_LIMIT
   CLEANUP_TEMP
   CLEANUP_ORPHANS
+  PURGE_DELETED
 }
 
 enum DeleteBasedOn {

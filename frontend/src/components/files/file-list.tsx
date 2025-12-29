@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -32,10 +32,13 @@ import {
   X,
   Clock,
   Database,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { FilePreviewModal } from './file-preview-modal';
 import { TagPicker } from './tag-picker';
 import { MoveToFolderModal } from './move-to-folder-modal';
+import { BulkTagPicker } from './bulk-tag-picker';
 
 interface FileTag {
   id: string;
@@ -77,6 +80,11 @@ interface FileListProps {
   onFiltersChange?: (filters: FileFilters) => void;
   totalFiles?: number;
   isInFolder?: boolean;
+  // Pagination props
+  page?: number;
+  limit?: number;
+  totalPages?: number;
+  onPageChange?: (page: number) => void;
 }
 
 const getFileIcon = (mimeType: string) => {
@@ -119,7 +127,7 @@ const SIZE_PRESETS = [
   { label: '> 10 MB', min: '10485760', max: '' },
 ];
 
-export function FileList({ files, bucketId, applicationId, isLoading, onShare, filters, onFiltersChange, totalFiles, isInFolder }: FileListProps) {
+export function FileList({ files, bucketId, applicationId, isLoading, onShare, filters, onFiltersChange, totalFiles, isInFolder, page = 1, limit = 50, totalPages = 1, onPageChange }: FileListProps) {
   const queryClient = useQueryClient();
   const [showFilters, setShowFilters] = useState(false);
   const [showDateFilter, setShowDateFilter] = useState(false);
@@ -133,9 +141,44 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
   const [tagPickerFile, setTagPickerFile] = useState<{ file: FileItem; position: { top: number; left: number } } | null>(null);
   const [showMoveToFolder, setShowMoveToFolder] = useState(false);
+  const [showBulkTagPicker, setShowBulkTagPicker] = useState(false);
+  const [jumpToPage, setJumpToPage] = useState('');
+
+  // Debounced search state
+  const [localSearch, setLocalSearch] = useState(filters?.search || '');
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  // Sync local search with external filter changes
+  useEffect(() => {
+    setLocalSearch(filters?.search || '');
+  }, [filters?.search]);
+
+  // Debounce search updates
+  const handleSearchChange = (value: string) => {
+    setLocalSearch(value);
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    searchTimeoutRef.current = setTimeout(() => {
+      if (filters && onFiltersChange) {
+        onFiltersChange({ ...filters, search: value });
+      }
+    }, 300);
+  };
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
   }, []);
 
   // Helper to update a single filter
@@ -254,8 +297,8 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
                 <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#c4bbd3]/60" />
                 <Input
                   placeholder="Search files..."
-                  value={filters.search}
-                  onChange={(e) => updateFilter('search', e.target.value)}
+                  value={localSearch}
+                  onChange={(e) => handleSearchChange(e.target.value)}
                   className="pl-11"
                 />
               </div>
@@ -383,6 +426,14 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
             {/* Bulk Actions */}
             {selectedFiles.size > 0 && (
               <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowBulkTagPicker(true)}
+                  disabled={!applicationId}
+                >
+                  <Tag className="mr-2 h-4 w-4" />
+                  Tag ({selectedFiles.size})
+                </Button>
                 <Button
                   variant="outline"
                   onClick={() => setShowMoveToFolder(true)}
@@ -661,7 +712,7 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
                           className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10"
                         >
                           <Trash2 className="h-4 w-4" />
-                          Delete
+                          Move to Bin
                         </button>
                       </div>
                     </>,
@@ -674,14 +725,150 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
         </div>
       )}
 
+      {/* Pagination */}
+      {totalPages > 1 && onPageChange && (
+        <div className="flex items-center justify-between mt-6 pt-4 border-t border-white/[0.08]">
+          <p className="text-sm text-[#c4bbd3]">
+            Showing {((page - 1) * limit) + 1} - {Math.min(page * limit, totalFiles || 0)} of {totalFiles} files
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onPageChange(page - 1)}
+              disabled={page <= 1}
+            >
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              Previous
+            </Button>
+            <div className="flex items-center gap-1">
+              {/* First page */}
+              {page > 3 && totalPages > 5 && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-8 h-8 p-0"
+                    onClick={() => onPageChange(1)}
+                  >
+                    1
+                  </Button>
+                  {page > 4 && (
+                    <span className="px-2 text-[#c4bbd3]">...</span>
+                  )}
+                </>
+              )}
+
+              {/* Page numbers around current */}
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNum: number;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (page <= 3) {
+                  pageNum = i + 1;
+                } else if (page >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = page - 2 + i;
+                }
+
+                // Skip if already showing first/last via ellipsis logic
+                if (totalPages > 5) {
+                  if (page > 3 && pageNum === 1) return null;
+                  if (page < totalPages - 2 && pageNum === totalPages) return null;
+                }
+
+                return (
+                  <Button
+                    key={pageNum}
+                    variant={page === pageNum ? 'default' : 'outline'}
+                    size="sm"
+                    className="w-8 h-8 p-0"
+                    onClick={() => onPageChange(pageNum)}
+                  >
+                    {pageNum}
+                  </Button>
+                );
+              })}
+
+              {/* Last page */}
+              {page < totalPages - 2 && totalPages > 5 && (
+                <>
+                  {page < totalPages - 3 && (
+                    <span className="px-2 text-[#c4bbd3]">...</span>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-8 h-8 p-0"
+                    onClick={() => onPageChange(totalPages)}
+                  >
+                    {totalPages}
+                  </Button>
+                </>
+              )}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onPageChange(page + 1)}
+              disabled={page >= totalPages}
+            >
+              Next
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+
+            {/* Jump to page */}
+            {totalPages > 5 && (
+              <div className="flex items-center gap-2 ml-4 pl-4 border-l border-white/[0.08]">
+                <span className="text-sm text-[#c4bbd3]">Go to</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={totalPages}
+                  value={jumpToPage}
+                  onChange={(e) => setJumpToPage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const pageNum = parseInt(jumpToPage, 10);
+                      if (pageNum >= 1 && pageNum <= totalPages) {
+                        onPageChange(pageNum);
+                        setJumpToPage('');
+                      }
+                    }
+                  }}
+                  className="w-16 h-8 text-center"
+                  placeholder={page.toString()}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  onClick={() => {
+                    const pageNum = parseInt(jumpToPage, 10);
+                    if (pageNum >= 1 && pageNum <= totalPages) {
+                      onPageChange(pageNum);
+                      setJumpToPage('');
+                    }
+                  }}
+                  disabled={!jumpToPage || parseInt(jumpToPage, 10) < 1 || parseInt(jumpToPage, 10) > totalPages}
+                >
+                  Go
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Delete Confirmation Dialog */}
       <AlertDialog
         open={!!deleteFileId}
         onOpenChange={(open) => !open && setDeleteFileId(null)}
-        title="Delete file?"
-        description="This action cannot be undone. The file will be permanently deleted."
+        title="Move to Recycle Bin?"
+        description="The file will be moved to the recycle bin and automatically deleted after 30 days. You can restore it before then."
         variant="destructive"
-        confirmLabel="Delete"
+        confirmLabel="Move to Recycle Bin"
         onConfirm={confirmDelete}
         loading={deleteMutation.isPending}
       />
@@ -690,10 +877,10 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
       <AlertDialog
         open={showBulkDeleteConfirm}
         onOpenChange={setShowBulkDeleteConfirm}
-        title={`Delete ${selectedFiles.size} file(s)?`}
-        description="This action cannot be undone. All selected files will be permanently deleted."
+        title={`Move ${selectedFiles.size} file(s) to Recycle Bin?`}
+        description="Files will be moved to the recycle bin and automatically deleted after 30 days. You can restore them before then."
         variant="destructive"
-        confirmLabel="Delete All"
+        confirmLabel="Move to Recycle Bin"
         onConfirm={confirmBulkDelete}
         loading={bulkDeleteMutation.isPending}
       />
@@ -724,6 +911,17 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
           bucketId={bucketId}
           fileIds={Array.from(selectedFiles)}
           onClose={() => setShowMoveToFolder(false)}
+          onSuccess={() => setSelectedFiles(new Set())}
+        />
+      )}
+
+      {/* Bulk Tag Picker */}
+      {showBulkTagPicker && applicationId && (
+        <BulkTagPicker
+          fileIds={Array.from(selectedFiles)}
+          bucketId={bucketId}
+          applicationId={applicationId}
+          onClose={() => setShowBulkTagPicker(false)}
           onSuccess={() => setSelectedFiles(new Set())}
         />
       )}

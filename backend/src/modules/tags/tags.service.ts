@@ -138,4 +138,129 @@ export class TagsService {
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
+
+  // External API methods with app validation
+
+  async updateWithAppValidation(appId: string, id: string, dto: Partial<CreateTagDto>) {
+    const tag = await this.prisma.tag.findUnique({ where: { id } });
+    if (!tag) {
+      throw new NotFoundException('Tag not found');
+    }
+    if (tag.applicationId !== appId) {
+      throw new NotFoundException('Tag not found');
+    }
+    return this.update(id, dto);
+  }
+
+  async deleteWithAppValidation(appId: string, id: string) {
+    const tag = await this.prisma.tag.findUnique({ where: { id } });
+    if (!tag) {
+      throw new NotFoundException('Tag not found');
+    }
+    if (tag.applicationId !== appId) {
+      throw new NotFoundException('Tag not found');
+    }
+    return this.delete(id);
+  }
+
+  async getFilesByTagWithAppValidation(appId: string, tagId: string, page = 1, limit = 50) {
+    const tag = await this.prisma.tag.findUnique({ where: { id: tagId } });
+    if (!tag) {
+      throw new NotFoundException('Tag not found');
+    }
+    if (tag.applicationId !== appId) {
+      throw new NotFoundException('Tag not found');
+    }
+    return this.getFilesByTag(tagId, page, limit);
+  }
+
+  async getFileTagsWithAppValidation(appId: string, fileId: string) {
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      include: { bucket: true },
+    });
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+    if (file.bucket.applicationId !== appId) {
+      throw new NotFoundException('File not found');
+    }
+    return this.getFileTags(fileId);
+  }
+
+  async addTagsToFileWithAppValidation(appId: string, fileId: string, tagIds: string[]) {
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      include: { bucket: true },
+    });
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+    if (file.bucket.applicationId !== appId) {
+      throw new NotFoundException('File not found');
+    }
+    return this.addTagsToFile(fileId, tagIds);
+  }
+
+  async removeTagFromFileWithAppValidation(appId: string, fileId: string, tagId: string) {
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      include: { bucket: true },
+    });
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+    if (file.bucket.applicationId !== appId) {
+      throw new NotFoundException('File not found');
+    }
+    return this.removeTagFromFile(fileId, tagId);
+  }
+
+  async bulkAddTagsToFiles(appId: string | null, fileIds: string[], tagIds: string[]) {
+    // Verify all files exist (and belong to app if appId provided)
+    const files = await this.prisma.file.findMany({
+      where: { id: { in: fileIds } },
+      include: { bucket: { select: { applicationId: true } } },
+    });
+
+    if (files.length !== fileIds.length) {
+      throw new NotFoundException('One or more files not found');
+    }
+
+    // For external API (appId provided), verify all files belong to the app
+    if (appId) {
+      const allBelongToApp = files.every((f) => f.bucket.applicationId === appId);
+      if (!allBelongToApp) {
+        throw new NotFoundException('One or more files not found');
+      }
+    }
+
+    // Verify all tags exist (and belong to app if appId provided)
+    const tagWhere: { id: { in: string[] }; applicationId?: string } = { id: { in: tagIds } };
+    if (appId) {
+      tagWhere.applicationId = appId;
+    }
+    const tags = await this.prisma.tag.findMany({
+      where: tagWhere,
+    });
+
+    if (tags.length !== tagIds.length) {
+      throw new NotFoundException('One or more tags not found');
+    }
+
+    // Add tags to all files
+    const data: { fileId: string; tagId: string }[] = [];
+    for (const fileId of fileIds) {
+      for (const tagId of tagIds) {
+        data.push({ fileId, tagId });
+      }
+    }
+
+    await this.prisma.fileTag.createMany({
+      data,
+      skipDuplicates: true,
+    });
+
+    return { success: true, filesTagged: fileIds.length, tagsAdded: tagIds.length };
+  }
 }
