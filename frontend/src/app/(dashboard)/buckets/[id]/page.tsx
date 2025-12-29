@@ -338,14 +338,14 @@ export default function BucketDetailPage() {
 
   // Handle bulk restore
   const handleBulkRestore = async () => {
-    for (const fileId of selectedDeletedFiles) {
+    for (const fileId of Array.from(selectedDeletedFiles)) {
       await restoreMutation.mutateAsync(fileId);
     }
   };
 
   // Handle bulk permanent delete
   const handleBulkPermanentDelete = async () => {
-    for (const fileId of selectedDeletedFiles) {
+    for (const fileId of Array.from(selectedDeletedFiles)) {
       await permanentDeleteMutation.mutateAsync(fileId);
     }
   };
