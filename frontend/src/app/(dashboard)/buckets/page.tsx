@@ -16,6 +16,7 @@ import { Progress } from '@/components/ui/progress';
 import { apiClient } from '@/lib/api-client';
 import { formatBytes, formatDate } from '@/lib/utils';
 import { Plus, FolderOpen, Globe, Lock, Files, ChevronDown, RefreshCw } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 interface Bucket {
   id: string;
@@ -35,6 +36,7 @@ interface Application {
 
 export default function BucketsPage() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [syncAppId, setSyncAppId] = useState('');
@@ -84,13 +86,25 @@ export default function BucketsPage() {
     onSuccess: async (data) => {
       await refetch();
       if (data.synced.length > 0) {
-        alert(`Synced ${data.synced.length} bucket(s) from Garage`);
+        toast({
+          title: 'Buckets Synced',
+          description: `Synced ${data.synced.length} bucket(s) from Garage`,
+          variant: 'success',
+        });
       } else {
-        alert('No new buckets to sync');
+        toast({
+          title: 'Already in Sync',
+          description: 'No new buckets to sync',
+          variant: 'default',
+        });
       }
     },
     onError: (error: Error) => {
-      alert(`Sync failed: ${error.message}`);
+      toast({
+        title: 'Sync Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
     },
   });
 

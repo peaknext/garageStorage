@@ -4,7 +4,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { S3Service } from '../../services/s3/s3.service';
 import { PoliciesService } from './policies.service';
-import { PolicyType, ActorType } from '@prisma/client';
+import { OrphanService } from '../files/orphan.service';
+import { PolicyType, ActorType, DeleteBasedOn } from '@prisma/client';
 
 @Injectable()
 export class PolicyExecutorService {
@@ -14,6 +15,7 @@ export class PolicyExecutorService {
     private prisma: PrismaService,
     private s3: S3Service,
     private policiesService: PoliciesService,
+    private orphanService: OrphanService,
     private eventEmitter: EventEmitter2,
   ) {}
 
@@ -71,6 +73,8 @@ export class PolicyExecutorService {
         return this.executeRetentionPolicy(policy);
       case PolicyType.CLEANUP_TEMP:
         return this.executeCleanupTempPolicy(policy);
+      case PolicyType.CLEANUP_ORPHANS:
+        return this.executeCleanupOrphansPolicy(policy);
       default:
         this.logger.warn(`Unknown policy type: ${policy.policyType}`);
     }
@@ -85,9 +89,27 @@ export class PolicyExecutorService {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - policy.deleteAfterDays);
 
-    const where: any = {
-      createdAt: { lt: cutoffDate },
-    };
+    const where: any = {};
+
+    // Determine which date field to use for deletion
+    if (policy.deleteBasedOn === DeleteBasedOn.LAST_ACCESSED) {
+      // Delete files not accessed within the period
+      // Include files that have never been accessed (null) and are old enough
+      where.OR = [
+        { lastAccessedAt: { lt: cutoffDate } },
+        {
+          AND: [
+            { lastAccessedAt: null },
+            { createdAt: { lt: cutoffDate } },
+          ],
+        },
+      ];
+      this.logger.log(`Using LAST_ACCESSED date for policy ${policy.id}`);
+    } else {
+      // Default: delete based on creation date
+      where.createdAt = { lt: cutoffDate };
+      this.logger.log(`Using CREATED date for policy ${policy.id}`);
+    }
 
     if (policy.bucketId) {
       where.bucketId = policy.bucketId;
@@ -167,6 +189,29 @@ export class PolicyExecutorService {
 
     this.logger.log(`Cleaned up ${deletedCount} temp files`);
     return { deletedCount };
+  }
+
+  private async executeCleanupOrphansPolicy(policy: any) {
+    this.logger.log(`Executing orphan cleanup policy ${policy.id}`);
+
+    // Determine scope - bucket level or application level
+    const bucketId = policy.bucketId || undefined;
+
+    // Run the orphan cleanup
+    const result = await this.orphanService.cleanupAllOrphans(bucketId);
+
+    this.logger.log(
+      `Orphan cleanup policy ${policy.id} complete: ` +
+        `${result.deletedDbRecords} DB records, ${result.deletedS3Files} S3 files, ` +
+        `${result.freedBytes} bytes freed`,
+    );
+
+    return {
+      deletedDbRecords: result.deletedDbRecords,
+      deletedS3Files: result.deletedS3Files,
+      freedBytes: result.freedBytes,
+      errors: result.errors.length,
+    };
   }
 
   private calculateNextRun(schedule: string): Date {

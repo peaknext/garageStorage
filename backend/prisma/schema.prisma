@@ -293,20 +293,21 @@ enum AuditStatus {
 // Storage Policies Model
 // ===========================================
 model StoragePolicy {
-  id              String       @id @default(uuid())
+  id              String        @id @default(uuid())
   name            String
   description     String?
-  scope           PolicyScope  @default(GLOBAL)
+  scope           PolicyScope   @default(GLOBAL)
   policyType      PolicyType
   rules           Json?
-  retentionDays   Int?         @map("retention_days")
-  deleteAfterDays Int?         @map("delete_after_days")
+  retentionDays   Int?          @map("retention_days")
+  deleteAfterDays Int?          @map("delete_after_days")
+  deleteBasedOn   DeleteBasedOn @default(CREATED) @map("delete_based_on")
   schedule        String?
-  lastRunAt       DateTime?    @map("last_run_at")
-  nextRunAt       DateTime?    @map("next_run_at")
-  isActive        Boolean      @default(true) @map("is_active")
-  createdAt       DateTime     @default(now()) @map("created_at")
-  updatedAt       DateTime     @updatedAt @map("updated_at")
+  lastRunAt       DateTime?     @map("last_run_at")
+  nextRunAt       DateTime?     @map("next_run_at")
+  isActive        Boolean       @default(true) @map("is_active")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
 
   // Relations
   applicationId String?      @map("app_id")
@@ -329,6 +330,12 @@ enum PolicyType {
   AUTO_DELETE
   SIZE_LIMIT
   CLEANUP_TEMP
+  CLEANUP_ORPHANS
+}
+
+enum DeleteBasedOn {
+  CREATED
+  LAST_ACCESSED
 }
 
 // ===========================================

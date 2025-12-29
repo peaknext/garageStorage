@@ -3,7 +3,8 @@
 import * as React from 'react';
 import * as ToastPrimitive from '@radix-ui/react-toast';
 import { cn } from '@/lib/utils';
-import { X } from 'lucide-react';
+import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
+import { useToast, ToastContextProvider } from '@/hooks/use-toast';
 
 const ToastProvider = ToastPrimitive.Provider;
 
@@ -34,8 +35,8 @@ const Toast = React.forwardRef<
       'group pointer-events-auto relative flex w-full items-center justify-between space-x-4 overflow-hidden rounded-xl p-6 pr-8 shadow-lg transition-all animate-fade-in',
       'backdrop-blur-xl border',
       variant === 'default' && 'border-white/[0.1] bg-white/[0.05] text-white',
-      variant === 'success' && 'border-[#ee4f27]/30 bg-[#ee4f27]/10 text-white shadow-[0_0_20px_rgba(238,79,39,0.2)]',
-      variant === 'destructive' && 'border-destructive/30 bg-destructive/10 text-white',
+      variant === 'success' && 'border-emerald-500/30 bg-emerald-500/10 text-white shadow-[0_0_20px_rgba(16,185,129,0.2)]',
+      variant === 'destructive' && 'border-red-500/30 bg-red-500/10 text-white',
       className,
     )}
     {...props}
@@ -85,12 +86,47 @@ const ToastDescription = React.forwardRef<
 ));
 ToastDescription.displayName = ToastPrimitive.Description.displayName;
 
+function ToastList() {
+  const { toasts, dismiss } = useToast();
+
+  const getIcon = (variant: string) => {
+    switch (variant) {
+      case 'success':
+        return <CheckCircle className="h-5 w-5 text-emerald-400" />;
+      case 'destructive':
+        return <AlertCircle className="h-5 w-5 text-red-400" />;
+      default:
+        return <Info className="h-5 w-5 text-blue-400" />;
+    }
+  };
+
+  return (
+    <>
+      {toasts.map((t) => (
+        <Toast key={t.id} variant={t.variant}>
+          <div className="flex items-start gap-3">
+            {getIcon(t.variant)}
+            <div className="grid gap-1">
+              <ToastTitle>{t.title}</ToastTitle>
+              {t.description && (
+                <ToastDescription>{t.description}</ToastDescription>
+              )}
+            </div>
+          </div>
+          <ToastClose onClick={() => dismiss(t.id)} />
+        </Toast>
+      ))}
+    </>
+  );
+}
+
 export function Toaster() {
   return (
     <ToastProvider>
+      <ToastList />
       <ToastViewport />
     </ToastProvider>
   );
 }
 
-export { Toast, ToastClose, ToastTitle, ToastDescription };
+export { Toast, ToastClose, ToastTitle, ToastDescription, ToastContextProvider };

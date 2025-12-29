@@ -26,15 +26,19 @@ import {
   Clock,
   Database,
   RefreshCw,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useState } from 'react';
 import { FileList } from '@/components/files/file-list';
 import { UploadModal } from '@/components/files/upload-modal';
 import { ShareModal } from '@/components/files/share-modal';
+import { useToast } from '@/hooks/use-toast';
 
 interface Bucket {
   id: string;
   name: string;
+  garageBucketId: string;
   usedBytes: number;
   quotaBytes: number | null;
   fileCount: number;
@@ -68,6 +72,14 @@ export default function BucketDetailPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [shareFile, setShareFile] = useState<FileItem | null>(null);
+  const [copied, setCopied] = useState(false);
+  const { toast } = useToast();
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const { data: bucket, isLoading } = useQuery({
     queryKey: ['bucket', params.id],
@@ -104,13 +116,25 @@ export default function BucketDetailPage() {
       await refetchFiles();
       queryClient.invalidateQueries({ queryKey: ['bucket', params.id] });
       if (data.synced > 0) {
-        alert(`Synced ${data.synced} file(s) from Garage S3`);
+        toast({
+          title: 'Files Synced',
+          description: `Synced ${data.synced} file(s) from Garage S3`,
+          variant: 'success',
+        });
       } else {
-        alert(`No new files to sync (${data.totalInS3} files already in sync)`);
+        toast({
+          title: 'Already in Sync',
+          description: `No new files to sync (${data.totalInS3} files already in sync)`,
+          variant: 'default',
+        });
       }
     },
     onError: (error: Error) => {
-      alert(`Sync failed: ${error.message}`);
+      toast({
+        title: 'Sync Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
     },
   });
 
@@ -264,34 +288,58 @@ export default function BucketDetailPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-4">
+            {/* Garage Bucket ID */}
             <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
-              <p className="text-sm font-medium text-[#c4bbd3] mb-2">Access</p>
+              <p className="text-sm font-medium text-[#c4bbd3] mb-2">Garage Bucket ID</p>
               <div className="flex items-center gap-2">
-                {bucket.isPublic ? (
-                  <>
-                    <Globe className="h-5 w-5 text-emerald-400" />
-                    <span className="text-white font-medium">Public</span>
-                  </>
-                ) : (
-                  <>
-                    <Lock className="h-5 w-5 text-[#c4bbd3]" />
-                    <span className="text-white font-medium">Private</span>
-                  </>
-                )}
+                <code className="flex-1 text-sm font-mono text-white bg-black/20 px-3 py-2 rounded-lg overflow-x-auto">
+                  {bucket.garageBucketId}
+                </code>
+                <button
+                  onClick={() => copyToClipboard(bucket.garageBucketId)}
+                  className="p-2 rounded-lg hover:bg-white/[0.05] transition-colors"
+                  title="Copy to clipboard"
+                >
+                  {copied ? (
+                    <Check className="h-4 w-4 text-emerald-400" />
+                  ) : (
+                    <Copy className="h-4 w-4 text-[#c4bbd3]" />
+                  )}
+                </button>
               </div>
             </div>
-            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
-              <p className="text-sm font-medium text-[#c4bbd3] mb-2">CORS</p>
-              <span className={`text-white font-medium ${bucket.corsEnabled ? 'text-emerald-400' : 'text-[#c4bbd3]'}`}>
-                {bucket.corsEnabled ? 'Enabled' : 'Disabled'}
-              </span>
-            </div>
-            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
-              <p className="text-sm font-medium text-[#c4bbd3] mb-2">Versioning</p>
-              <span className={`text-white font-medium ${bucket.versioningEnabled ? 'text-emerald-400' : 'text-[#c4bbd3]'}`}>
-                {bucket.versioningEnabled ? 'Enabled' : 'Disabled'}
-              </span>
+
+            {/* Settings Grid */}
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+                <p className="text-sm font-medium text-[#c4bbd3] mb-2">Access</p>
+                <div className="flex items-center gap-2">
+                  {bucket.isPublic ? (
+                    <>
+                      <Globe className="h-5 w-5 text-emerald-400" />
+                      <span className="text-white font-medium">Public</span>
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="h-5 w-5 text-[#c4bbd3]" />
+                      <span className="text-white font-medium">Private</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+                <p className="text-sm font-medium text-[#c4bbd3] mb-2">CORS</p>
+                <span className={`text-white font-medium ${bucket.corsEnabled ? 'text-emerald-400' : 'text-[#c4bbd3]'}`}>
+                  {bucket.corsEnabled ? 'Enabled' : 'Disabled'}
+                </span>
+              </div>
+              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+                <p className="text-sm font-medium text-[#c4bbd3] mb-2">Versioning</p>
+                <span className={`text-white font-medium ${bucket.versioningEnabled ? 'text-emerald-400' : 'text-[#c4bbd3]'}`}>
+                  {bucket.versioningEnabled ? 'Enabled' : 'Disabled'}
+                </span>
+              </div>
             </div>
           </div>
         </CardContent>

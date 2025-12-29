@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { AlertDialog } from '@/components/ui/alert-dialog';
 import { apiClient } from '@/lib/api-client';
 import { formatBytes, formatDate } from '@/lib/utils';
 import {
@@ -74,6 +75,8 @@ export function FileList({ files, bucketId, isLoading, onShare }: FileListProps)
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const [mounted, setMounted] = useState(false);
+  const [deleteFileId, setDeleteFileId] = useState<string | null>(null);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -130,16 +133,24 @@ export function FileList({ files, bucketId, isLoading, onShare }: FileListProps)
   };
 
   const handleDelete = (fileId: string) => {
-    if (confirm('Are you sure you want to delete this file?')) {
-      deleteMutation.mutate(fileId);
-    }
+    setDeleteFileId(fileId);
   };
 
   const handleBulkDelete = () => {
     if (selectedFiles.size === 0) return;
-    if (confirm(`Are you sure you want to delete ${selectedFiles.size} file(s)?`)) {
-      bulkDeleteMutation.mutate(Array.from(selectedFiles));
+    setShowBulkDeleteConfirm(true);
+  };
+
+  const confirmDelete = () => {
+    if (deleteFileId) {
+      deleteMutation.mutate(deleteFileId);
+      setDeleteFileId(null);
     }
+  };
+
+  const confirmBulkDelete = () => {
+    bulkDeleteMutation.mutate(Array.from(selectedFiles));
+    setShowBulkDeleteConfirm(false);
   };
 
   if (isLoading) {
@@ -351,6 +362,30 @@ export function FileList({ files, bucketId, isLoading, onShare }: FileListProps)
           })}
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        open={!!deleteFileId}
+        onOpenChange={(open) => !open && setDeleteFileId(null)}
+        title="Delete file?"
+        description="This action cannot be undone. The file will be permanently deleted."
+        variant="destructive"
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+        loading={deleteMutation.isPending}
+      />
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog
+        open={showBulkDeleteConfirm}
+        onOpenChange={setShowBulkDeleteConfirm}
+        title={`Delete ${selectedFiles.size} file(s)?`}
+        description="This action cannot be undone. All selected files will be permanently deleted."
+        variant="destructive"
+        confirmLabel="Delete All"
+        onConfirm={confirmBulkDelete}
+        loading={bulkDeleteMutation.isPending}
+      />
     </div>
   );
 }

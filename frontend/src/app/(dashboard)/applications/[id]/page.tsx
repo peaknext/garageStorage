@@ -23,6 +23,7 @@ import {
   Trash2,
   Copy,
   CheckCircle,
+  Check,
   Globe,
   Lock,
   Webhook,
@@ -59,7 +60,16 @@ export default function ApplicationDetailPage() {
   const queryClient = useQueryClient();
   const [newApiKey, setNewApiKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedBucketId, setCopiedBucketId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+
+  const copyBucketId = (e: React.MouseEvent, bucketId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigator.clipboard.writeText(bucketId);
+    setCopiedBucketId(bucketId);
+    setTimeout(() => setCopiedBucketId(null), 2000);
+  };
 
   const { data: app, isLoading } = useQuery({
     queryKey: ['application', params.id],
@@ -287,7 +297,24 @@ export default function ApplicationDetailPage() {
                       <FolderOpen className="h-5 w-5 text-[#6b21ef]" />
                       <div>
                         <p className="font-medium text-white">{bucket.name}</p>
-                        <p className="text-sm text-[#c4bbd3]">{bucket.fileCount} files</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <code className="text-xs font-mono text-[#c4bbd3]/70 bg-black/20 px-2 py-0.5 rounded">
+                            {bucket.id}
+                          </code>
+                          <button
+                            onClick={(e) => copyBucketId(e, bucket.id)}
+                            className="p-1 rounded hover:bg-white/[0.05] transition-colors"
+                            title="Copy Bucket ID"
+                          >
+                            {copiedBucketId === bucket.id ? (
+                              <Check className="h-3 w-3 text-emerald-400" />
+                            ) : (
+                              <Copy className="h-3 w-3 text-[#c4bbd3]/50" />
+                            )}
+                          </button>
+                          <span className="text-xs text-[#c4bbd3]/50">•</span>
+                          <span className="text-xs text-[#c4bbd3]">{bucket.fileCount} files</span>
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-4">

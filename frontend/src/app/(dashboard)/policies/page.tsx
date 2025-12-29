@@ -46,7 +46,9 @@ import {
   FileWarning,
   Timer,
   HardDrive,
+  FileX,
 } from 'lucide-react';
+import { AlertDialog } from '@/components/ui/alert-dialog';
 
 interface StoragePolicy {
   id: string;
@@ -55,10 +57,11 @@ interface StoragePolicy {
   scope: 'GLOBAL' | 'APPLICATION' | 'BUCKET';
   applicationId: string | null;
   bucketId: string | null;
-  policyType: 'RETENTION' | 'AUTO_DELETE' | 'SIZE_LIMIT' | 'CLEANUP_TEMP';
+  policyType: 'RETENTION' | 'AUTO_DELETE' | 'SIZE_LIMIT' | 'CLEANUP_TEMP' | 'CLEANUP_ORPHANS';
   rules: any;
   retentionDays: number | null;
   deleteAfterDays: number | null;
+  deleteBasedOn: 'CREATED' | 'LAST_ACCESSED';
   schedule: string | null;
   lastRunAt: string | null;
   nextRunAt: string | null;
@@ -110,6 +113,11 @@ const POLICY_TYPE_INFO: Record<string, { icon: React.ReactNode; color: string; d
     color: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
     description: 'Clean up temporary files',
   },
+  CLEANUP_ORPHANS: {
+    icon: <FileX className="h-5 w-5" />,
+    color: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+    description: 'Remove orphan files (DB/S3 mismatch)',
+  },
 };
 
 export default function PoliciesPage() {
@@ -124,9 +132,11 @@ export default function PoliciesPage() {
   const [scope, setScope] = useState<'GLOBAL' | 'APPLICATION' | 'BUCKET'>('GLOBAL');
   const [applicationId, setApplicationId] = useState<string>('');
   const [bucketId, setBucketId] = useState<string>('');
-  const [policyType, setPolicyType] = useState<'RETENTION' | 'AUTO_DELETE' | 'SIZE_LIMIT' | 'CLEANUP_TEMP'>('RETENTION');
+  const [policyType, setPolicyType] = useState<'RETENTION' | 'AUTO_DELETE' | 'SIZE_LIMIT' | 'CLEANUP_TEMP' | 'CLEANUP_ORPHANS'>('RETENTION');
+  const [deletePolicyId, setDeletePolicyId] = useState<string | null>(null);
   const [retentionDays, setRetentionDays] = useState<string>('30');
   const [deleteAfterDays, setDeleteAfterDays] = useState<string>('90');
+  const [deleteBasedOn, setDeleteBasedOn] = useState<'CREATED' | 'LAST_ACCESSED'>('CREATED');
   const [schedule, setSchedule] = useState('0 2 * * *');
   const [isActive, setIsActive] = useState(true);
 
@@ -207,6 +217,7 @@ export default function PoliciesPage() {
     setPolicyType('RETENTION');
     setRetentionDays('30');
     setDeleteAfterDays('90');
+    setDeleteBasedOn('CREATED');
     setSchedule('0 2 * * *');
     setIsActive(true);
   };
@@ -233,6 +244,7 @@ export default function PoliciesPage() {
     }
     if (policyType === 'AUTO_DELETE') {
       policyData.deleteAfterDays = parseInt(deleteAfterDays);
+      policyData.deleteBasedOn = deleteBasedOn;
     }
 
     createMutation.mutate(policyData);
@@ -297,6 +309,7 @@ export default function PoliciesPage() {
                       <SelectItem value="AUTO_DELETE">Auto Delete</SelectItem>
                       <SelectItem value="SIZE_LIMIT">Size Limit</SelectItem>
                       <SelectItem value="CLEANUP_TEMP">Cleanup Temp</SelectItem>
+                      <SelectItem value="CLEANUP_ORPHANS">Cleanup Orphans</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -361,16 +374,35 @@ export default function PoliciesPage() {
                 </div>
               )}
               {policyType === 'AUTO_DELETE' && (
-                <div className="space-y-2">
-                  <Label htmlFor="deleteAfterDays">Delete After Days</Label>
-                  <Input
-                    id="deleteAfterDays"
-                    type="number"
-                    value={deleteAfterDays}
-                    onChange={(e) => setDeleteAfterDays(e.target.value)}
-                    placeholder="90"
-                  />
-                </div>
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="deleteAfterDays">Delete After Days</Label>
+                    <Input
+                      id="deleteAfterDays"
+                      type="number"
+                      value={deleteAfterDays}
+                      onChange={(e) => setDeleteAfterDays(e.target.value)}
+                      placeholder="90"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Delete Based On</Label>
+                    <Select value={deleteBasedOn} onValueChange={(v: 'CREATED' | 'LAST_ACCESSED') => setDeleteBasedOn(v)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CREATED">Creation Date</SelectItem>
+                        <SelectItem value="LAST_ACCESSED">Last Access Date</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-[#c4bbd3]/60">
+                      {deleteBasedOn === 'LAST_ACCESSED'
+                        ? 'Files not accessed within the period will be deleted'
+                        : 'Files older than the period will be deleted'}
+                    </p>
+                  </div>
+                </>
               )}
               <div className="space-y-2">
                 <Label htmlFor="schedule">Schedule (Cron)</Label>
@@ -503,6 +535,7 @@ export default function PoliciesPage() {
                               <span className="flex items-center gap-1">
                                 <Trash2 className="h-3 w-3" />
                                 Delete after {policy.deleteAfterDays} days
+                                {policy.deleteBasedOn === 'LAST_ACCESSED' && ' (since last access)'}
                               </span>
                             )}
                             {policy.schedule && (
@@ -554,11 +587,7 @@ export default function PoliciesPage() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-red-400 hover:bg-red-500/10"
-                          onClick={() => {
-                            if (confirm('Delete this policy?')) {
-                              deleteMutation.mutate(policy.id);
-                            }
-                          }}
+                          onClick={() => setDeletePolicyId(policy.id)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -596,6 +625,23 @@ export default function PoliciesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        open={!!deletePolicyId}
+        onOpenChange={(open) => !open && setDeletePolicyId(null)}
+        title="Delete policy?"
+        description="This will permanently delete the storage policy. This action cannot be undone."
+        variant="destructive"
+        confirmLabel="Delete"
+        onConfirm={() => {
+          if (deletePolicyId) {
+            deleteMutation.mutate(deletePolicyId);
+            setDeletePolicyId(null);
+          }
+        }}
+        loading={deleteMutation.isPending}
+      />
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { AlertDialog } from '@/components/ui/alert-dialog';
 import { apiClient } from '@/lib/api-client';
 import { formatDate } from '@/lib/utils';
 import {
@@ -64,6 +65,7 @@ export default function SharesPage() {
   const [filter, setFilter] = useState<'all' | 'active' | 'expired'>('all');
   const [page, setPage] = useState(1);
   const [copied, setCopied] = useState<string | null>(null);
+  const [revokeShareId, setRevokeShareId] = useState<string | null>(null);
   const limit = 20;
 
   const { data, isLoading } = useQuery({
@@ -291,11 +293,7 @@ export default function SharesPage() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-red-400 hover:bg-red-500/10"
-                        onClick={() => {
-                          if (confirm('Revoke this share link?')) {
-                            deleteMutation.mutate(share.id);
-                          }
-                        }}
+                        onClick={() => setRevokeShareId(share.id)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -332,6 +330,23 @@ export default function SharesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Revoke Confirmation Dialog */}
+      <AlertDialog
+        open={!!revokeShareId}
+        onOpenChange={(open) => !open && setRevokeShareId(null)}
+        title="Revoke share link?"
+        description="This will permanently disable the share link. Anyone with the link will no longer be able to access the file."
+        variant="destructive"
+        confirmLabel="Revoke"
+        onConfirm={() => {
+          if (revokeShareId) {
+            deleteMutation.mutate(revokeShareId);
+            setRevokeShareId(null);
+          }
+        }}
+        loading={deleteMutation.isPending}
+      />
     </div>
   );
 }
