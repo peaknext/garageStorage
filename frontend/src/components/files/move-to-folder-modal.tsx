@@ -1,21 +1,21 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button } from '@/components/ui/button';
-import { apiClient } from '@/lib/api-client';
-import { useToast } from '@/hooks/use-toast';
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { apiClient } from "@/lib/api-client";
+import { useToast } from "@/hooks/use-toast";
 import {
   Folder,
   FolderOpen,
   ChevronRight,
   ChevronDown,
-  Home,
   Loader2,
   X,
   Check,
   FolderInput,
-} from 'lucide-react';
+} from "lucide-react";
 
 interface VirtualFolder {
   id: string;
@@ -32,30 +32,72 @@ interface MoveToFolderModalProps {
   onSuccess?: () => void;
 }
 
-export function MoveToFolderModal({ bucketId, fileIds, onClose, onSuccess }: MoveToFolderModalProps) {
+export function MoveToFolderModal({
+  bucketId,
+  fileIds,
+  onClose,
+  onSuccess,
+}: MoveToFolderModalProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+    new Set()
+  );
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Prevent body scroll when modal is open
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, []);
+
+  // Handle keyboard events
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   // Fetch folders
   const { data: folders, isLoading } = useQuery({
-    queryKey: ['folders', bucketId],
+    queryKey: ["folders", bucketId],
     queryFn: async () => {
-      const { data } = await apiClient.get<VirtualFolder[]>(`/admin/buckets/${bucketId}/folders`);
+      const { data } = await apiClient.get<VirtualFolder[]>(
+        `/admin/buckets/${bucketId}/folders`
+      );
       return data;
     },
   });
 
   const moveMutation = useMutation({
-    mutationFn: async ({ fileId, folderId }: { fileId: string; folderId: string }) => {
-      await apiClient.post(`/admin/buckets/${bucketId}/files/${fileId}/folders`, {
-        folderId,
-      });
+    mutationFn: async ({
+      fileId,
+      folderId,
+    }: {
+      fileId: string;
+      folderId: string;
+    }) => {
+      await apiClient.post(
+        `/admin/buckets/${bucketId}/files/${fileId}/folders`,
+        {
+          folderId,
+        }
+      );
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket-files', bucketId] });
-      queryClient.invalidateQueries({ queryKey: ['folders', bucketId] });
+      queryClient.invalidateQueries({ queryKey: ["bucket-files", bucketId] });
+      queryClient.invalidateQueries({ queryKey: ["folders", bucketId] });
     },
   });
 
@@ -67,17 +109,19 @@ export function MoveToFolderModal({ bucketId, fileIds, onClose, onSuccess }: Mov
         await moveMutation.mutateAsync({ fileId, folderId: selectedFolderId });
       }
       toast({
-        title: 'Files moved',
-        description: `Moved ${fileIds.length} file${fileIds.length !== 1 ? 's' : ''} to folder`,
-        variant: 'success',
+        title: "Files moved",
+        description: `Moved ${fileIds.length} file${
+          fileIds.length !== 1 ? "s" : ""
+        } to folder`,
+        variant: "success",
       });
       onSuccess?.();
       onClose();
     } catch (error) {
       toast({
-        title: 'Failed to move files',
+        title: "Failed to move files",
         description: (error as Error).message,
-        variant: 'destructive',
+        variant: "destructive",
       });
     }
   };
@@ -102,8 +146,8 @@ export function MoveToFolderModal({ bucketId, fileIds, onClose, onSuccess }: Mov
         <div
           className={`flex items-center gap-1 py-2 px-3 rounded-lg cursor-pointer transition-colors ${
             isSelected
-              ? 'bg-[#ee4f27]/10 text-[#ee4f27] border border-[#ee4f27]/30'
-              : 'text-[#c4bbd3] hover:bg-white/[0.05] hover:text-white border border-transparent'
+              ? "bg-[#ee4f27]/10 text-[#ee4f27] border border-[#ee4f27]/30"
+              : "text-[#c4bbd3] hover:bg-white/[0.05] hover:text-white border border-transparent"
           }`}
           style={{ marginLeft: `${level * 20}px` }}
           onClick={() => setSelectedFolderId(folder.id)}
@@ -135,9 +179,7 @@ export function MoveToFolderModal({ bucketId, fileIds, onClose, onSuccess }: Mov
           )}
           <span className="text-sm truncate">{folder.name}</span>
 
-          {isSelected && (
-            <Check className="h-4 w-4 ml-auto text-[#ee4f27]" />
-          )}
+          {isSelected && <Check className="h-4 w-4 ml-auto text-[#ee4f27]" />}
         </div>
 
         {/* Children */}
@@ -150,11 +192,14 @@ export function MoveToFolderModal({ bucketId, fileIds, onClose, onSuccess }: Mov
     );
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+  // Use portal to render at document root with highest z-index
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 backdrop-blur-md"
         onClick={onClose}
       />
 
@@ -167,9 +212,11 @@ export function MoveToFolderModal({ bucketId, fileIds, onClose, onSuccess }: Mov
               <FolderInput className="h-5 w-5 text-[#6b21ef]" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-white">Move to Folder</h3>
+              <h3 className="text-lg font-semibold text-white">
+                Move to Folder
+              </h3>
               <p className="text-sm text-[#c4bbd3]">
-                {fileIds.length} file{fileIds.length !== 1 ? 's' : ''} selected
+                {fileIds.length} file{fileIds.length !== 1 ? "s" : ""} selected
               </p>
             </div>
           </div>
@@ -222,6 +269,7 @@ export function MoveToFolderModal({ bucketId, fileIds, onClose, onSuccess }: Mov
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

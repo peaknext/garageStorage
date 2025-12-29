@@ -131,19 +131,51 @@ export class OrphanService {
           }
         }
 
+        // Get all thumbnail keys from DB for this bucket to exclude them from orphan detection
+        const filesWithThumbnails = await this.prisma.file.findMany({
+          where: { bucketId: bucket.id, thumbnailKey: { not: null } },
+          select: { thumbnailKey: true },
+        });
+        const thumbnailKeys = new Set(
+          filesWithThumbnails.map((f) => f.thumbnailKey).filter(Boolean),
+        );
+
         // Find S3 orphans (in S3 but not in DB)
+        // Exclude: system prefixes (_thumbnails/) and valid thumbnail keys
         for (const [key, s3File] of s3FileMap) {
-          if (!dbKeys.has(key)) {
-            s3Orphans.push({
-              key,
-              bucketId: bucket.id,
-              bucketName: bucket.name,
-              garageBucketId: bucket.garageBucketId,
-              sizeBytes: s3File.size,
-              lastModified: s3File.lastModified,
-            });
-            totalS3OrphanBytes += s3File.size;
+          // Skip if it's a known file key
+          if (dbKeys.has(key)) continue;
+
+          // Skip if it's a valid thumbnail for an existing file
+          if (thumbnailKeys.has(key)) continue;
+
+          // Skip system directories/prefixes that shouldn't be treated as orphans
+          if (key.startsWith('_thumbnails/') || key.startsWith('_system/')) {
+            // Double-check: if it's in _thumbnails/ but not a valid thumbnail, it's orphaned
+            if (key.startsWith('_thumbnails/') && !thumbnailKeys.has(key)) {
+              // This is an orphaned thumbnail (parent file was deleted)
+              s3Orphans.push({
+                key,
+                bucketId: bucket.id,
+                bucketName: bucket.name,
+                garageBucketId: bucket.garageBucketId,
+                sizeBytes: s3File.size,
+                lastModified: s3File.lastModified,
+              });
+              totalS3OrphanBytes += s3File.size;
+            }
+            continue;
           }
+
+          s3Orphans.push({
+            key,
+            bucketId: bucket.id,
+            bucketName: bucket.name,
+            garageBucketId: bucket.garageBucketId,
+            sizeBytes: s3File.size,
+            lastModified: s3File.lastModified,
+          });
+          totalS3OrphanBytes += s3File.size;
         }
 
         this.logger.log(

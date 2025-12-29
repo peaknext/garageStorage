@@ -1,10 +1,11 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Button } from '@/components/ui/button';
-import { apiClient } from '@/lib/api-client';
-import { formatBytes } from '@/lib/utils';
+import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
+import { useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { apiClient } from "@/lib/api-client";
+import { formatBytes } from "@/lib/utils";
 import {
   X,
   Download,
@@ -18,7 +19,11 @@ import {
   AlertCircle,
   Maximize2,
   Minimize2,
-} from 'lucide-react';
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Move,
+} from "lucide-react";
 
 interface FileItem {
   id: string;
@@ -33,7 +38,7 @@ interface PreviewData {
   mimeType: string;
   originalName: string;
   sizeBytes: number;
-  previewType: 'image' | 'pdf' | 'video' | 'audio' | 'text' | 'download';
+  previewType: "image" | "pdf" | "video" | "audio" | "text" | "download";
 }
 
 interface FilePreviewModalProps {
@@ -44,26 +49,335 @@ interface FilePreviewModalProps {
 
 const getPreviewIcon = (previewType: string) => {
   switch (previewType) {
-    case 'image':
+    case "image":
       return FileImage;
-    case 'video':
+    case "video":
       return FileVideo;
-    case 'audio':
+    case "audio":
       return FileAudio;
-    case 'text':
-    case 'pdf':
+    case "text":
+    case "pdf":
       return FileText;
     default:
       return File;
   }
 };
 
-export function FilePreviewModal({ file, bucketId, onClose }: FilePreviewModalProps) {
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [textContent, setTextContent] = useState<string | null>(null);
+// Image zoom and pan component
+function ImageViewer({ src, alt }: { src: string; alt: string }) {
+  const [scale, setScale] = useState(1);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
 
-  const { data: preview, isLoading, error } = useQuery({
-    queryKey: ['file-preview', bucketId, file.id],
+  const MIN_SCALE = 0.5;
+  const MAX_SCALE = 5;
+  const ZOOM_STEP = 0.25;
+
+  const handleZoomIn = useCallback(() => {
+    setScale((prev) => Math.min(prev + ZOOM_STEP, MAX_SCALE));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setScale((prev) => Math.max(prev - ZOOM_STEP, MIN_SCALE));
+  }, []);
+
+  const handleReset = useCallback(() => {
+    setScale(1);
+    setPosition({ x: 0, y: 0 });
+  }, []);
+
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
+    setScale((prev) => Math.min(Math.max(prev + delta, MIN_SCALE), MAX_SCALE));
+  }, []);
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (scale > 1) {
+        setIsDragging(true);
+        setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+      }
+    },
+    [scale, position]
+  );
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (isDragging) {
+        setPosition({
+          x: e.clientX - dragStart.x,
+          y: e.clientY - dragStart.y,
+        });
+      }
+    },
+    [isDragging, dragStart]
+  );
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // Double click to zoom
+  const handleDoubleClick = useCallback(() => {
+    if (scale === 1) {
+      setScale(2);
+    } else {
+      handleReset();
+    }
+  }, [scale, handleReset]);
+
+  return (
+    <div className="relative w-full h-full flex flex-col">
+      {/* Zoom Controls */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5 border border-white/10">
+        <button
+          onClick={handleZoomOut}
+          className="p-1.5 hover:bg-white/10 rounded-full transition-colors"
+          title="Zoom out"
+        >
+          <ZoomOut className="h-4 w-4 text-white" />
+        </button>
+        <span className="text-sm text-white min-w-[50px] text-center font-medium">
+          {Math.round(scale * 100)}%
+        </span>
+        <button
+          onClick={handleZoomIn}
+          className="p-1.5 hover:bg-white/10 rounded-full transition-colors"
+          title="Zoom in"
+        >
+          <ZoomIn className="h-4 w-4 text-white" />
+        </button>
+        <div className="w-px h-4 bg-white/20" />
+        <button
+          onClick={handleReset}
+          className="p-1.5 hover:bg-white/10 rounded-full transition-colors"
+          title="Reset zoom"
+        >
+          <RotateCcw className="h-4 w-4 text-white" />
+        </button>
+        {scale > 1 && (
+          <>
+            <div className="w-px h-4 bg-white/20" />
+            <Move className="h-4 w-4 text-white/60" />
+            <span className="text-xs text-white/60">Drag to pan</span>
+          </>
+        )}
+      </div>
+
+      {/* Image Container */}
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-hidden flex items-center justify-center"
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onDoubleClick={handleDoubleClick}
+        style={{
+          cursor: scale > 1 ? (isDragging ? "grabbing" : "grab") : "zoom-in",
+        }}
+      >
+        <img
+          ref={imageRef}
+          src={src}
+          alt={alt}
+          className="max-w-full max-h-full object-contain rounded-lg shadow-lg select-none"
+          style={{
+            transform: `scale(${scale}) translate(${position.x / scale}px, ${
+              position.y / scale
+            }px)`,
+            transition: isDragging ? "none" : "transform 0.2s ease-out",
+          }}
+          draggable={false}
+        />
+      </div>
+
+      {/* Hint */}
+      <p className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-white/40">
+        Scroll to zoom, double-click to toggle zoom, drag to pan when zoomed
+      </p>
+    </div>
+  );
+}
+
+// Text content viewer
+function TextViewer({ url }: { url: string }) {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchContent = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const response = await fetch(url, {
+          mode: "cors",
+          credentials: "omit",
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const text = await response.text();
+        if (isMounted) {
+          setContent(text);
+        }
+      } catch (err) {
+        if (isMounted) {
+          // Try without CORS as fallback (may work for same-origin)
+          try {
+            const response = await fetch(url);
+            const text = await response.text();
+            setContent(text);
+          } catch {
+            setError(`Failed to load content: ${(err as Error).message}`);
+          }
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchContent();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [url]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="h-6 w-6 text-[#ee4f27] animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-4">
+        <AlertCircle className="h-10 w-10 text-amber-400" />
+        <p className="text-[#c4bbd3] text-center">{error}</p>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[#ee4f27] hover:underline text-sm"
+        >
+          Open in new tab instead
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full overflow-auto rounded-lg border border-white/[0.1] bg-[#0e0918]">
+      <pre className="p-4 text-sm text-[#c4bbd3] font-mono whitespace-pre-wrap break-words">
+        {content}
+      </pre>
+    </div>
+  );
+}
+
+// PDF viewer with fallback
+function PdfViewer({ url, filename }: { url: string; filename: string }) {
+  const [useIframe, setUseIframe] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-4">
+        <FileText className="h-16 w-16 text-[#c4bbd3]/30" />
+        <p className="text-white font-medium">PDF preview unavailable</p>
+        <p className="text-sm text-[#c4bbd3]">
+          Your browser may not support embedded PDFs
+        </p>
+        <div className="flex gap-3">
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#ee4f27] text-white hover:bg-[#ee4f27]/90 transition-colors"
+          >
+            <ExternalLink className="h-4 w-4" />
+            Open in new tab
+          </a>
+          <a
+            href={url}
+            download={filename}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-white/10 text-white hover:bg-white/5 transition-colors"
+          >
+            <Download className="h-4 w-4" />
+            Download
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  if (useIframe) {
+    return (
+      <iframe
+        src={url}
+        className="w-full h-full rounded-lg border border-white/[0.1] bg-white"
+        title={filename}
+        onError={() => setLoadError(true)}
+      />
+    );
+  }
+
+  // Fallback to object tag
+  return (
+    <object
+      data={url}
+      type="application/pdf"
+      className="w-full h-full rounded-lg"
+    >
+      <div className="flex flex-col items-center justify-center h-full gap-4">
+        <p className="text-[#c4bbd3]">PDF cannot be displayed</p>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[#ee4f27] hover:underline"
+        >
+          Open in new tab
+        </a>
+      </div>
+    </object>
+  );
+}
+
+export function FilePreviewModal({
+  file,
+  bucketId,
+  onClose,
+}: FilePreviewModalProps) {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const {
+    data: preview,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["file-preview", bucketId, file.id],
     queryFn: async () => {
       const { data } = await apiClient.get<PreviewData>(
         `/admin/buckets/${bucketId}/files/${file.id}/preview`
@@ -72,20 +386,10 @@ export function FilePreviewModal({ file, bucketId, onClose }: FilePreviewModalPr
     },
   });
 
-  // Fetch text content for text files
-  useEffect(() => {
-    if (preview?.previewType === 'text' && preview.url) {
-      fetch(preview.url)
-        .then((res) => res.text())
-        .then(setTextContent)
-        .catch(() => setTextContent('Failed to load text content'));
-    }
-  }, [preview]);
-
   // Handle keyboard events
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === "Escape") {
         if (isFullscreen) {
           setIsFullscreen(false);
         } else {
@@ -93,29 +397,43 @@ export function FilePreviewModal({ file, bucketId, onClose }: FilePreviewModalPr
         }
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose, isFullscreen]);
+
+  // Prevent body scroll when modal is open
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, []);
 
   const handleDownload = () => {
     if (preview?.url) {
-      window.open(preview.url, '_blank');
+      const link = document.createElement("a");
+      link.href = preview.url;
+      link.download = preview.originalName;
+      link.click();
     }
   };
 
   const handleOpenInNewTab = () => {
     if (preview?.url) {
-      window.open(preview.url, '_blank');
+      window.open(preview.url, "_blank");
     }
   };
 
   const PreviewIcon = preview ? getPreviewIcon(preview.previewType) : File;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+  // Use portal to render at document root with highest z-index
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 backdrop-blur-md"
         onClick={onClose}
       />
 
@@ -123,8 +441,8 @@ export function FilePreviewModal({ file, bucketId, onClose }: FilePreviewModalPr
       <div
         className={`relative bg-[#1a1025] border border-white/[0.1] rounded-2xl shadow-2xl flex flex-col overflow-hidden transition-all duration-300 ${
           isFullscreen
-            ? 'w-[98vw] h-[98vh]'
-            : 'w-[90vw] max-w-5xl h-[85vh] max-h-[800px]'
+            ? "w-[98vw] h-[98vh]"
+            : "w-[90vw] max-w-5xl h-[85vh] max-h-[800px]"
         }`}
       >
         {/* Header */}
@@ -148,7 +466,7 @@ export function FilePreviewModal({ file, bucketId, onClose }: FilePreviewModalPr
               size="icon"
               onClick={() => setIsFullscreen(!isFullscreen)}
               className="h-9 w-9"
-              title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+              title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
             >
               {isFullscreen ? (
                 <Minimize2 className="h-4 w-4" />
@@ -186,7 +504,7 @@ export function FilePreviewModal({ file, bucketId, onClose }: FilePreviewModalPr
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto flex items-center justify-center p-4 bg-black/20">
+        <div className="flex-1 overflow-hidden flex items-center justify-center p-4 bg-black/20">
           {isLoading ? (
             <div className="flex flex-col items-center gap-4">
               <Loader2 className="h-10 w-10 text-[#ee4f27] animate-spin" />
@@ -198,7 +516,7 @@ export function FilePreviewModal({ file, bucketId, onClose }: FilePreviewModalPr
               <div>
                 <p className="text-white font-medium">Failed to load preview</p>
                 <p className="text-sm text-[#c4bbd3] mt-1">
-                  {(error as Error).message || 'An error occurred'}
+                  {(error as Error).message || "An error occurred"}
                 </p>
               </div>
               <Button variant="outline" onClick={handleDownload}>
@@ -208,26 +526,18 @@ export function FilePreviewModal({ file, bucketId, onClose }: FilePreviewModalPr
             </div>
           ) : preview ? (
             <>
-              {/* Image Preview */}
-              {preview.previewType === 'image' && (
-                <img
-                  src={preview.url}
-                  alt={preview.originalName}
-                  className="max-w-full max-h-full object-contain rounded-lg shadow-lg"
-                />
+              {/* Image Preview with Zoom/Pan */}
+              {preview.previewType === "image" && (
+                <ImageViewer src={preview.url} alt={preview.originalName} />
               )}
 
               {/* PDF Preview */}
-              {preview.previewType === 'pdf' && (
-                <iframe
-                  src={preview.url}
-                  className="w-full h-full rounded-lg border border-white/[0.1]"
-                  title={preview.originalName}
-                />
+              {preview.previewType === "pdf" && (
+                <PdfViewer url={preview.url} filename={preview.originalName} />
               )}
 
               {/* Video Preview */}
-              {preview.previewType === 'video' && (
+              {preview.previewType === "video" && (
                 <video
                   src={preview.url}
                   controls
@@ -239,7 +549,7 @@ export function FilePreviewModal({ file, bucketId, onClose }: FilePreviewModalPr
               )}
 
               {/* Audio Preview */}
-              {preview.previewType === 'audio' && (
+              {preview.previewType === "audio" && (
                 <div className="flex flex-col items-center gap-6 p-8">
                   <div className="w-32 h-32 rounded-2xl bg-gradient-to-br from-[#6b21ef]/30 to-[#ee4f27]/30 flex items-center justify-center">
                     <FileAudio className="h-16 w-16 text-white/80" />
@@ -251,16 +561,12 @@ export function FilePreviewModal({ file, bucketId, onClose }: FilePreviewModalPr
               )}
 
               {/* Text Preview */}
-              {preview.previewType === 'text' && (
-                <div className="w-full h-full overflow-auto rounded-lg border border-white/[0.1] bg-[#0e0918]">
-                  <pre className="p-4 text-sm text-[#c4bbd3] font-mono whitespace-pre-wrap">
-                    {textContent || 'Loading text content...'}
-                  </pre>
-                </div>
+              {preview.previewType === "text" && (
+                <TextViewer url={preview.url} />
               )}
 
               {/* Fallback - Download */}
-              {preview.previewType === 'download' && (
+              {preview.previewType === "download" && (
                 <div className="flex flex-col items-center gap-6 text-center">
                   <div className="w-24 h-24 rounded-2xl bg-white/[0.05] border border-white/[0.1] flex items-center justify-center">
                     <File className="h-12 w-12 text-[#c4bbd3]" />
@@ -286,6 +592,7 @@ export function FilePreviewModal({ file, bucketId, onClose }: FilePreviewModalPr
           ) : null}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

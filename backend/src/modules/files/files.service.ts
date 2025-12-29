@@ -225,7 +225,19 @@ export class FilesService {
   async deleteFile(appId: string, bucketId: string, fileId: string) {
     const file = await this.getFileWithBucket(bucketId, fileId);
 
+    // Delete main file from S3
     await this.s3.deleteFile(file.bucket.garageBucketId, file.key);
+
+    // Delete thumbnail from S3 if it exists
+    if (file.thumbnailKey) {
+      try {
+        await this.s3.deleteFile(file.bucket.garageBucketId, file.thumbnailKey);
+      } catch (error) {
+        // Log but don't fail if thumbnail deletion fails
+        this.logger.warn(`Failed to delete thumbnail for file ${fileId}: ${(error as Error).message}`);
+      }
+    }
+
     await this.prisma.file.delete({ where: { id: fileId } });
     await this.updateUsageStats(appId, bucketId, -file.sizeBytes);
 

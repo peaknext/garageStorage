@@ -111,6 +111,13 @@ User Upload → FilesService → Bull Queue (thumbnail) → ThumbnailProcessor �
 - **Events**: `@OnEvent('audit.log')` for async audit logging
 - **Cron Jobs**: `@Cron()` decorators in PolicyExecutorService, AlertsService for scheduled tasks
 
+### Thumbnail Storage
+
+Thumbnails are stored in S3 with prefix `_thumbnails/{fileId}.{format}`:
+- The `thumbnailKey` is stored on the parent File record, not as a separate File entry
+- When deleting files, thumbnails are automatically deleted (see `files.service.ts:deleteFile`)
+- Orphan detection excludes valid thumbnails by checking `thumbnailKey` references
+
 ### Backend Modules
 
 | Module | Purpose |
@@ -142,6 +149,9 @@ User Upload → FilesService → Bull Queue (thumbnail) → ThumbnailProcessor �
 - [configuration.ts](backend/src/config/configuration.ts) - Environment config
 - [thumbnail.processor.ts](backend/src/modules/processing/processors/thumbnail.processor.ts) - Bull queue processor
 - [audit.service.ts](backend/src/modules/audit/audit.service.ts) - Event-driven audit logging
+- [orphan.service.ts](backend/src/modules/files/orphan.service.ts) - Orphan file detection and cleanup
+- [file-preview-modal.tsx](frontend/src/components/files/file-preview-modal.tsx) - File preview with zoom/pan
+- [file-list.tsx](frontend/src/components/files/file-list.tsx) - File table with filters and selection
 
 ## Environment Variables
 
@@ -188,6 +198,40 @@ Located in `frontend/src/components/ui/`. Radix UI primitives styled for dark th
 - `Button`, `Input`, `Card`, `Dialog`, `Select`, `Switch`, `Slider`, `Label`, `Textarea`, `Progress`
 - Add new Radix components: install package, create component file following existing patterns
 
+### Modal Pattern
+
+For modals that must appear above all content (including portaled dropdowns), use this pattern:
+
+```tsx
+import { createPortal } from 'react-dom';
+
+export function MyModal({ onClose }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={onClose} />
+      <div className="relative bg-[#1a1025] ...">...</div>
+    </div>,
+    document.body
+  );
+}
+```
+
+Key elements:
+- Use `createPortal` to render at document root
+- Use `z-[99999]` (dropdowns use z-[9999])
+- Prevent body scroll when open
+- Handle Escape key to close
+
 ### Database Schema Change
 1. Edit `backend/prisma/schema.prisma`
 2. Run `npx prisma migrate dev --name description`
@@ -224,8 +268,10 @@ When adding packages to `package.json`, run `npm install` locally first to updat
 | Application Detail | `/applications/[id]` | View app details, API key, webhooks preview |
 | Webhooks | `/applications/[id]/webhooks` | Manage application webhooks |
 | Buckets | `/buckets` | List and manage storage buckets |
-| Bucket Detail | `/buckets/[id]` | File management, upload, delete, share |
+| Bucket Detail | `/buckets/[id]` | File management, upload, delete, share, folders, preview |
+| Tags | `/tags` | Tag management across all applications |
 | Share Links | `/shares` | Global view of all share links |
+| Orphan Files | `/orphan-files` | Detect and clean up orphaned files |
 | Analytics | `/analytics` | Charts and usage statistics |
 | Audit Logs | `/audit` | System operation logs with filters/export |
 | Policies | `/policies` | Storage policies (retention, auto-delete) |
@@ -320,9 +366,9 @@ environment:
   - REDIS_PASSWORD=${REDIS_PASSWORD}            # Required for Bull
 ```
 
-### File Search API Enhancements
+### File Search API
 
-The files list endpoint supports these query params:
+The files list endpoint (`GET /admin/buckets/:id/files`) supports server-side filtering:
 
 | Param | Type | Description |
 |-------|------|-------------|
@@ -332,6 +378,8 @@ The files list endpoint supports these query params:
 | `dateTo` | ISO string | Files created before this date |
 | `sizeMin` | number | Minimum file size in bytes |
 | `sizeMax` | number | Maximum file size in bytes |
+
+The frontend uses debounced filters (300ms) and passes them to the API via query params.
 
 ### Use Todo Lists for Multi-Step Tasks
 

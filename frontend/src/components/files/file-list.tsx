@@ -472,9 +472,13 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
                 </div>
 
                 <div className="flex items-center gap-3 min-w-0">
-                  {/* Show thumbnail for images, otherwise show icon */}
+                  {/* Show thumbnail for images, otherwise show icon - clickable to preview */}
                   {file.mimeType.startsWith('image/') && file.thumbnailUrl ? (
-                    <div className="relative h-10 w-10 flex-shrink-0 rounded-lg overflow-hidden bg-white/[0.05] border border-white/[0.1]">
+                    <button
+                      onClick={() => setPreviewFile(file)}
+                      className="relative h-10 w-10 flex-shrink-0 rounded-lg overflow-hidden bg-white/[0.05] border border-white/[0.1] hover:border-[#ee4f27]/50 hover:ring-2 hover:ring-[#ee4f27]/20 transition-all cursor-pointer"
+                      title="Click to preview"
+                    >
                       <img
                         src={file.thumbnailUrl}
                         alt={file.originalName}
@@ -484,14 +488,24 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
                           e.currentTarget.style.display = 'none';
                         }}
                       />
-                    </div>
+                    </button>
                   ) : (
-                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                    <button
+                      onClick={() => setPreviewFile(file)}
+                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-white/[0.03] border border-white/[0.06] hover:border-[#ee4f27]/50 hover:bg-white/[0.05] transition-all cursor-pointer"
+                      title="Click to preview"
+                    >
                       <Icon className={`h-5 w-5 ${iconColor}`} />
-                    </div>
+                    </button>
                   )}
                   <div className="min-w-0">
-                    <p className="text-sm text-white truncate">{file.originalName}</p>
+                    <button
+                      onClick={() => setPreviewFile(file)}
+                      className="text-sm text-white truncate hover:text-[#ee4f27] transition-colors cursor-pointer text-left max-w-full block"
+                      title="Click to preview"
+                    >
+                      {file.originalName}
+                    </button>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       {file.isPublic ? (
                         <span className="flex items-center gap-1 text-xs text-emerald-400">
