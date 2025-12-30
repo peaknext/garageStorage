@@ -670,3 +670,21 @@ if (selectedAppId) params.append('applicationId', selectedAppId);
 params.append('limit', '100');
 const url = `/admin/recycle-bin?${params.toString()}`;
 ```
+
+### Set Iteration: Use Array.from() for Compatibility
+
+TypeScript in production build may fail when iterating Sets directly. Convert to array first:
+
+```typescript
+// BAD: May fail with "can only be iterated through when using '--downlevelIteration'"
+for (const fileId of selectedFiles) { // selectedFiles is Set<string>
+  await restoreMutation.mutateAsync(fileId);
+}
+
+// GOOD: Convert Set to Array before iterating
+for (const fileId of Array.from(selectedFiles)) {
+  await restoreMutation.mutateAsync(fileId);
+}
+```
+
+This happens because the Docker build uses stricter TypeScript settings than local dev mode.

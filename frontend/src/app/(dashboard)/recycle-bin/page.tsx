@@ -144,7 +144,7 @@ export default function RecycleBinPage() {
 
   // Handle bulk restore
   const handleBulkRestore = async () => {
-    for (const fileId of selectedFiles) {
+    for (const fileId of Array.from(selectedFiles)) {
       await restoreMutation.mutateAsync(fileId);
     }
     setShowRestoreDialog(false);
@@ -152,7 +152,7 @@ export default function RecycleBinPage() {
 
   // Handle bulk delete
   const handleBulkDelete = async () => {
-    for (const fileId of selectedFiles) {
+    for (const fileId of Array.from(selectedFiles)) {
       await deleteMutation.mutateAsync(fileId);
     }
     setShowDeleteDialog(false);
