@@ -83,9 +83,8 @@ export default function ApplicationDetailPage() {
     queryKey: ['application-buckets', params.id],
     queryFn: async () => {
       const { data } = await apiClient.get<{ data: Bucket[] }>('/admin/buckets', {
-        params: { limit: 100 },
+        params: { limit: 100, applicationId: params.id },
       });
-      // Filter buckets for this application (would need backend support ideally)
       return data;
     },
   });

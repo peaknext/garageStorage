@@ -32,16 +32,22 @@ export class AdminBucketsController {
   @ApiOperation({ summary: 'List all buckets (Admin)' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'applicationId', required: false, type: String, description: 'Filter by application ID' })
   async findAll(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('applicationId') applicationId?: string,
   ) {
     const pageNum = parseInt(page || '1', 10);
     const limitNum = parseInt(limit || '50', 10);
     const skip = (pageNum - 1) * limitNum;
 
+    // Build where clause with optional applicationId filter
+    const where = applicationId ? { applicationId } : {};
+
     const [buckets, total] = await Promise.all([
       this.prisma.bucket.findMany({
+        where,
         skip,
         take: limitNum,
         include: {
@@ -54,7 +60,7 @@ export class AdminBucketsController {
         },
         orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.bucket.count(),
+      this.prisma.bucket.count({ where }),
     ]);
 
     return {

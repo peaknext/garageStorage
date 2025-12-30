@@ -58,7 +58,7 @@ services:
     container_name: garage-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6378:6378"
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
     volumes:
       - redis-data:/data
@@ -90,9 +90,9 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_password}
-      - GARAGE_ENDPOINT=http://192.168.1.121:3900
-      - GARAGE_PUBLIC_ENDPOINT=http://192.168.1.121:3900
-      - GARAGE_ADMIN_ENDPOINT=http://192.168.1.121:3903
+      - GARAGE_ENDPOINT=http://garage:3900
+      - GARAGE_PUBLIC_ENDPOINT=http://garage:3900
+      - GARAGE_ADMIN_ENDPOINT=http://garage:3903
       - GARAGE_ADMIN_TOKEN=YWRtaW50b2tlbjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkw
       - GARAGE_REGION=garage
       - GARAGE_ACCESS_KEY=${GARAGE_ACCESS_KEY}
