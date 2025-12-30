@@ -11,7 +11,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BucketsService } from './buckets.service';
@@ -137,16 +137,20 @@ export class AdminBucketsController {
     };
   }
 
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update bucket settings or reassign to different application (Admin)' })
+  @ApiParam({ name: 'id', description: 'Bucket ID' })
+  async updateBucket(
+    @Param('id') bucketId: string,
+    @Body() dto: UpdateBucketDto,
+  ) {
+    return this.bucketsService.updateAdmin(bucketId, dto);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete bucket (Admin)' })
   async delete(@Param('id') id: string) {
     await this.prisma.bucket.delete({ where: { id } });
-  }
-
-  @Post('sync')
-  @ApiOperation({ summary: 'Sync buckets from Garage to database (Admin)' })
-  async syncFromGarage(@Body() body: { applicationId: string }) {
-    return this.bucketsService.syncFromGarage(body.applicationId);
   }
 }

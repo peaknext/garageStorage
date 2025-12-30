@@ -14,7 +14,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AppStatus } from '@prisma/client';
+import { AppStatus } from '../../generated/prisma';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
 

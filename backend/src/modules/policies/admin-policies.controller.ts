@@ -22,7 +22,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PoliciesService, CreatePolicyDto, UpdatePolicyDto } from './policies.service';
 import { PolicyExecutorService } from './policy-executor.service';
-import { PolicyScope, PolicyType, ActorType, AuditStatus } from '@prisma/client';
+import { PolicyScope, PolicyType, ActorType, AuditStatus } from '../../generated/prisma';
 
 @ApiTags('admin-policies')
 @Controller('admin/policies')

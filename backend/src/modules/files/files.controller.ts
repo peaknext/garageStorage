@@ -49,16 +49,16 @@ export class FilesController {
   async listFiles(
     @CurrentApp() app: { id: string },
     @Param('bucketId') bucketId: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
     @Query('prefix') prefix?: string,
     @Query('mimeType') mimeType?: string,
     @Query('sort') sort?: string,
     @Query('order') order?: 'asc' | 'desc',
   ) {
     return this.filesService.listFiles(app.id, bucketId, {
-      page,
-      limit,
+      page: page ? parseInt(page, 10) : 1,
+      limit: limit ? parseInt(limit, 10) : 50,
       prefix,
       mimeType,
       sort,

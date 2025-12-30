@@ -32,6 +32,8 @@ import {
   RotateCcw,
   AlertTriangle,
   Loader2,
+  Building2,
+  ChevronDown,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { FileList, FileFilters } from "@/components/files/file-list";
@@ -94,6 +96,12 @@ interface RecycleBinStats {
   } | null;
 }
 
+interface Application {
+  id: string;
+  name: string;
+  slug: string;
+}
+
 const defaultFilters: FileFilters = {
   search: "",
   mimeType: "",
@@ -121,6 +129,8 @@ export default function BucketDetailPage() {
     new Set()
   );
   const [showEmptyBinDialog, setShowEmptyBinDialog] = useState(false);
+  const [showReassignModal, setShowReassignModal] = useState(false);
+  const [selectedAppId, setSelectedAppId] = useState("");
   const [page, setPage] = useState(1);
   const ITEMS_PER_PAGE = 20;
 
@@ -159,6 +169,47 @@ export default function BucketDetailPage() {
         `/admin/buckets/${params.id}`
       );
       return data;
+    },
+  });
+
+  // Fetch all applications for reassignment dropdown
+  const { data: applications } = useQuery({
+    queryKey: ["applications"],
+    queryFn: async () => {
+      const response = await apiClient.get<{ data: Application[] }>(
+        "/admin/applications",
+        { params: { limit: 100 } }
+      );
+      return response.data?.data || [];
+    },
+  });
+
+  // Mutation for bucket reassignment
+  const reassignMutation = useMutation({
+    mutationFn: async (applicationId: string) => {
+      const { data } = await apiClient.patch(`/admin/buckets/${params.id}`, {
+        applicationId,
+      });
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bucket", params.id] });
+      queryClient.invalidateQueries({ queryKey: ["buckets"] });
+      setShowReassignModal(false);
+      setSelectedAppId("");
+      toast({
+        title: "Bucket reassigned",
+        description: "The bucket has been moved to the new application",
+        variant: "success",
+      });
+    },
+    onError: (error: { response?: { data?: { message?: string } } }) => {
+      toast({
+        title: "Reassignment failed",
+        description:
+          error.response?.data?.message || "Failed to reassign bucket",
+        variant: "destructive",
+      });
     },
   });
 
@@ -580,6 +631,34 @@ export default function BucketDetailPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
+            {/* Application */}
+            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+              <p className="text-sm font-medium text-[#c4bbd3] mb-2">
+                Application
+              </p>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-5 w-5 text-[#6b21ef]" />
+                  <span className="text-white font-medium">
+                    {bucket.application?.name || "Unknown"}
+                  </span>
+                  <span className="text-[#c4bbd3] text-sm">
+                    ({bucket.application?.slug || "N/A"})
+                  </span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedAppId(bucket.applicationId);
+                    setShowReassignModal(true);
+                  }}
+                >
+                  Change Application
+                </Button>
+              </div>
+            </div>
+
             {/* Garage Bucket ID */}
             <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
               <p className="text-sm font-medium text-[#c4bbd3] mb-2">
@@ -1089,6 +1168,97 @@ export default function BucketDetailPage() {
             fileName={shareFile.originalName}
             onClose={() => setShareFile(null)}
           />
+        </div>
+      )}
+
+      {/* Reassign Application Modal */}
+      {showReassignModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/70"
+            onClick={() => {
+              setShowReassignModal(false);
+              setSelectedAppId("");
+            }}
+          />
+          <div className="relative bg-[#1a1025] border border-white/10 rounded-lg p-6 max-w-md w-full mx-4">
+            <h2 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+              <Building2 className="w-5 h-5 text-[#6b21ef]" />
+              Change Application
+            </h2>
+            <p className="text-[#c4bbd3] mb-4">
+              Move bucket <span className="text-white font-medium">{bucket.name}</span> to a different application.
+              This will also transfer the storage quota usage.
+            </p>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-white">Target Application</label>
+                <div className="relative">
+                  <select
+                    value={selectedAppId}
+                    onChange={(e) => setSelectedAppId(e.target.value)}
+                    className="w-full h-11 px-4 pr-10 rounded-xl border border-white/[0.1] bg-white/[0.03] text-white focus:outline-none focus:ring-2 focus:ring-[#6b21ef]/50 focus:border-[#6b21ef]/50 hover:border-white/[0.2] transition-colors appearance-none cursor-pointer"
+                  >
+                    {applications?.map((app) => (
+                      <option
+                        key={app.id}
+                        value={app.id}
+                        className="bg-[#0e0918] text-white"
+                        disabled={app.id === bucket.applicationId}
+                      >
+                        {app.name} ({app.slug}){app.id === bucket.applicationId ? " - Current" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#c4bbd3] pointer-events-none" />
+                </div>
+              </div>
+
+              {selectedAppId && selectedAppId !== bucket.applicationId && (
+                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                  <p className="text-sm text-amber-300">
+                    <AlertTriangle className="w-4 h-4 inline mr-2" />
+                    This bucket will be moved to{" "}
+                    <span className="font-medium">
+                      {applications?.find((a) => a.id === selectedAppId)?.name}
+                    </span>
+                    . Storage quota will be adjusted for both applications.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowReassignModal(false);
+                  setSelectedAppId("");
+                }}
+                disabled={reassignMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => reassignMutation.mutate(selectedAppId)}
+                disabled={
+                  reassignMutation.isPending ||
+                  !selectedAppId ||
+                  selectedAppId === bucket.applicationId
+                }
+              >
+                {reassignMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Moving...
+                  </>
+                ) : (
+                  "Move Bucket"
+                )}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 

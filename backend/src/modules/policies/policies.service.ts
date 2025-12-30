@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PolicyScope, PolicyType, Prisma } from '@prisma/client';
+import { PolicyScope, PolicyType, Prisma } from '../../generated/prisma';
 
 export interface CreatePolicyDto {
   name: string;

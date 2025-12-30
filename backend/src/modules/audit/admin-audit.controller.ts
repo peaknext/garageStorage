@@ -15,7 +15,7 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AuditService, QueryAuditLogsDto } from './audit.service';
-import { ActorType } from '@prisma/client';
+import { ActorType } from '../../generated/prisma';
 
 @ApiTags('admin-audit')
 @Controller('admin/audit')

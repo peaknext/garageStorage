@@ -6,7 +6,7 @@ import { S3Service } from '../../services/s3/s3.service';
 import { PoliciesService } from './policies.service';
 import { OrphanService } from '../files/orphan.service';
 import { RecycleBinService } from '../files/recycle-bin.service';
-import { PolicyType, ActorType, DeleteBasedOn } from '@prisma/client';
+import { PolicyType, ActorType, DeleteBasedOn } from '../../generated/prisma';
 
 @Injectable()
 export class PolicyExecutorService {

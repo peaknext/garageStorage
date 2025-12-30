@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from './notification.service';
-import { AlertLevel } from '@prisma/client';
+import { AlertLevel } from '../../generated/prisma';
 
 export interface CreateAlertDto {
   applicationId: string;

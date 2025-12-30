@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { S3Service } from '../../services/s3/s3.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { ActorType } from '@prisma/client';
+import { ActorType } from '../../generated/prisma';
 
 export interface DbOrphan {
   id: string;

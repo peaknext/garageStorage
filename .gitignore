@@ -50,6 +50,7 @@ garage-data/
 # Prisma
 prisma/*.db
 prisma/*.db-journal
+backend/src/generated/
 
 # Testing
 *.test.ts.snap

@@ -3,17 +3,17 @@ FROM node:20-slim AS builder
 
 WORKDIR /app
 
-# Install OpenSSL
-RUN apt-get update -y && apt-get install -y openssl
+# Install OpenSSL and build dependencies for pg native bindings
+RUN apt-get update -y && apt-get install -y openssl python3 make g++ && rm -rf /var/lib/apt/lists/*
 
-# Copy package files
+# Copy package files and prisma config
 COPY package*.json ./
 COPY prisma ./prisma/
 
 # Install dependencies
 RUN npm ci
 
-# Generate Prisma client
+# Generate Prisma client (outputs to src/generated/prisma)
 RUN npx prisma generate
 
 # Copy source code
@@ -27,7 +27,7 @@ FROM node:20-slim AS production
 
 WORKDIR /app
 
-# Install OpenSSL
+# Install OpenSSL for runtime
 RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
@@ -37,10 +37,10 @@ COPY prisma ./prisma/
 # Install production dependencies only
 RUN npm ci --only=production
 
-# Generate Prisma client
+# Generate Prisma client for production
 RUN npx prisma generate
 
-# Copy built app
+# Copy built app (includes compiled generated prisma in dist/src/generated)
 COPY --from=builder /app/dist ./dist
 
 # Expose port

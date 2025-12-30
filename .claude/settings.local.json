@@ -14,7 +14,12 @@
       "Bash(npx tsc:*)",
       "Bash(docker ps:*)",
       "Bash(pushd \"a:\\\\garageStorage\\\\backend\")",
-      "Bash(popd:*)"
+      "Bash(popd:*)",
+      "Bash(npm install:*)",
+      "Bash(npx prisma generate)",
+      "Bash(pushd \"a:\\\\garageStorage\\\\frontend\")",
+      "Bash(npm list:*)",
+      "Bash(find:*)"
     ]
   }
 }

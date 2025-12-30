@@ -85,6 +85,31 @@ Your application can be configured with allowed origins for CORS:
 - Empty array = all origins allowed (default)
 - Non-empty array = only listed origins allowed
 
+### Response Format
+
+All list/search endpoints return a consistent response structure:
+
+```json
+{
+  "data": [...],
+  "meta": {
+    "total": 100,
+    "page": 1,
+    "limit": 20,
+    "totalPages": 5
+  }
+}
+```
+
+> **Important for JavaScript/TypeScript clients:** When using axios, the API response is wrapped in axios's `response.data`. So to access the file array:
+> ```typescript
+> const response = await axios.get('/buckets/{id}/files');
+> const files = response.data.data;  // Note: data.data
+> const meta = response.data.meta;
+> ```
+
+Single resource endpoints (GET by ID, create, update) return the resource object directly without the `data`/`meta` wrapper.
+
 ---
 
 ## Bucket Operations
@@ -246,6 +271,11 @@ GET /buckets/{bucketId}/files?page=1&limit=50&prefix=documents/
       "sizeBytes": 1048576,
       "isPublic": false,
       "downloadCount": 5,
+      "thumbnailStatus": "GENERATED",
+      "thumbnailUrl": "https://presigned-url...",
+      "tags": [
+        { "id": "tag-id", "name": "important", "color": "#ff0000" }
+      ],
       "createdAt": "2024-01-01T00:00:00.000Z",
       "updatedAt": "2024-01-01T00:00:00.000Z",
       "url": "https://..."
@@ -259,6 +289,10 @@ GET /buckets/{bucketId}/files?page=1&limit=50&prefix=documents/
   }
 }
 ```
+
+**Thumbnail Status Values (in file listings):** `GENERATED`, `PENDING`, `FAILED`, `NONE`, `NOT_APPLICABLE`
+
+> **Note:** Image files automatically get thumbnails generated. The `thumbnailUrl` is a presigned URL (valid for 5 minutes) included when `thumbnailStatus` is `GENERATED`.
 
 ### Get File Details
 
@@ -549,6 +583,10 @@ Content-Type: application/json
       "originalName": "report.pdf",
       "mimeType": "application/pdf",
       "sizeBytes": 1048576,
+      "isPublic": false,
+      "downloadCount": 5,
+      "thumbnailStatus": "GENERATED",
+      "thumbnailUrl": "https://presigned-url...",
       "bucket": {
         "id": "bucket-uuid",
         "name": "documents"
@@ -556,7 +594,9 @@ Content-Type: application/json
       "tags": [
         { "id": "tag-id", "name": "important", "color": "#ff0000" }
       ],
-      "createdAt": "2024-01-01T00:00:00.000Z"
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "url": "https://presigned-download-url..."
     }
   ],
   "meta": {
@@ -567,6 +607,10 @@ Content-Type: application/json
   }
 }
 ```
+
+**Thumbnail Status Values:** `GENERATED`, `PENDING`, `FAILED`, `NONE`, `NOT_APPLICABLE`
+
+> **Tip:** Use the `thumbnailUrl` from search/list responses to display thumbnails without making additional API calls. The URL is pre-signed and valid for 5 minutes.
 
 ### Get Thumbnail
 
@@ -585,7 +629,13 @@ GET /buckets/{bucketId}/files/{fileId}/thumbnail
 }
 ```
 
-**Status Values:** `available`, `pending`, `failed`, `not_available`
+**Status Values (lowercase):** `available`, `pending`, `failed`, `not_available`
+
+> **Note:** This endpoint uses lowercase status values for backward compatibility. File listing/search endpoints use uppercase enum values (`GENERATED`, `PENDING`, `FAILED`, `NONE`). The mapping is:
+> - `available` = `GENERATED`
+> - `pending` = `PENDING`
+> - `failed` = `FAILED`
+> - `not_available` = `NONE` or `NOT_APPLICABLE`
 
 ### Regenerate Thumbnail
 

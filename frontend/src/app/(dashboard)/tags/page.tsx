@@ -80,10 +80,12 @@ export default function TagsPage() {
   const { data: applications, isLoading: appsLoading } = useQuery({
     queryKey: ['applications'],
     queryFn: async () => {
-      const { data } = await apiClient.get<{ data: Application[] }>('/admin/applications', {
+      const response = await apiClient.get<{ data: Application[]; pagination: unknown }>('/admin/applications', {
         params: { limit: 100 },
       });
-      return data.data;
+      // Handle response structure: { data: [...], pagination: {...} }
+      const apps = response.data?.data;
+      return Array.isArray(apps) ? apps : [];
     },
   });
 

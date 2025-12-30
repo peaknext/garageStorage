@@ -15,8 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { apiClient } from '@/lib/api-client';
 import { formatBytes, formatDate } from '@/lib/utils';
-import { Plus, FolderOpen, Globe, Lock, Files, ChevronDown, RefreshCw } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { Plus, FolderOpen, Globe, Lock, Files, ChevronDown } from 'lucide-react';
 
 interface Bucket {
   id: string;
@@ -36,29 +35,28 @@ interface Application {
 
 export default function BucketsPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [showSyncModal, setShowSyncModal] = useState(false);
-  const [syncAppId, setSyncAppId] = useState('');
   const [newBucket, setNewBucket] = useState({ name: '', isPublic: false, applicationId: '' });
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data: buckets, isLoading } = useQuery({
     queryKey: ['buckets'],
     queryFn: async () => {
-      const { data } = await apiClient.get<{ data: Bucket[] }>('/admin/buckets', {
+      const response = await apiClient.get<{ data: Bucket[]; pagination: unknown }>('/admin/buckets', {
         params: { limit: 50 },
       });
-      return data;
+      const bucketsList = response.data?.data;
+      return Array.isArray(bucketsList) ? bucketsList : [];
     },
   });
 
-  const { data: applicationsData } = useQuery({
+  const { data: applications } = useQuery({
     queryKey: ['applications'],
     queryFn: async () => {
-      const { data } = await apiClient.get<{ data: Application[] }>('/admin/applications', {
+      const response = await apiClient.get<{ data: Application[]; pagination: unknown }>('/admin/applications', {
         params: { limit: 100 },
       });
-      return data;
+      const apps = response.data?.data;
+      return Array.isArray(apps) ? apps : [];
     },
   });
 
@@ -74,40 +72,6 @@ export default function BucketsPage() {
     },
   });
 
-  const syncMutation = useMutation({
-    mutationFn: async (applicationId: string) => {
-      const response = await apiClient.post<{
-        synced: Array<{ id: string; name: string; garageBucketId: string }>;
-        skipped: Array<{ garageBucketId: string; reason: string }>;
-        total: number;
-      }>('/admin/buckets/sync', { applicationId });
-      return response.data;
-    },
-    onSuccess: async (data) => {
-      await refetch();
-      if (data.synced.length > 0) {
-        toast({
-          title: 'Buckets Synced',
-          description: `Synced ${data.synced.length} bucket(s) from Garage`,
-          variant: 'success',
-        });
-      } else {
-        toast({
-          title: 'Already in Sync',
-          description: 'No new buckets to sync',
-          variant: 'default',
-        });
-      }
-    },
-    onError: (error: Error) => {
-      toast({
-        title: 'Sync Failed',
-        description: error.message,
-        variant: 'destructive',
-      });
-    },
-  });
-
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     createMutation.mutate(newBucket);
@@ -120,16 +84,10 @@ export default function BucketsPage() {
           <h1 className="text-3xl font-bold text-white tracking-tight">Buckets</h1>
           <p className="text-[#c4bbd3] mt-1">Manage your storage buckets</p>
         </div>
-        <div className="flex gap-3">
-          <Button variant="outline" onClick={() => setShowSyncModal(true)}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Sync from Garage
-          </Button>
-          <Button onClick={() => setShowCreateForm(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Bucket
-          </Button>
-        </div>
+        <Button onClick={() => setShowCreateForm(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          New Bucket
+        </Button>
       </div>
 
       {/* Create Form */}
@@ -162,7 +120,7 @@ export default function BucketsPage() {
                     <option value="" disabled className="bg-[#0e0918] text-[#c4bbd3]">
                       Select an application
                     </option>
-                    {applicationsData?.data?.map((app) => (
+                    {applications?.map((app) => (
                       <option key={app.id} value={app.id} className="bg-[#0e0918] text-white">
                         {app.name} ({app.slug})
                       </option>
@@ -221,79 +179,6 @@ export default function BucketsPage() {
         </Card>
       )}
 
-      {/* Sync Modal */}
-      {showSyncModal && (
-        <Card className="animate-scale-in">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#6b21ef]/20 to-[#6b21ef]/5 border border-[#6b21ef]/20">
-                <RefreshCw className="h-5 w-5 text-[#6b21ef]" />
-              </div>
-              <div>
-                <CardTitle>Sync Buckets from Garage</CardTitle>
-                <CardDescription>Import existing Garage buckets into the database</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-5">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-white">Target Application</label>
-                <p className="text-xs text-[#c4bbd3] mb-2">Select which application to associate the imported buckets with</p>
-                <div className="relative">
-                  <select
-                    value={syncAppId}
-                    onChange={(e) => setSyncAppId(e.target.value)}
-                    className="w-full h-11 px-4 pr-10 rounded-xl border border-white/[0.1] bg-white/[0.03] text-white placeholder:text-[#c4bbd3]/60 focus:outline-none focus:ring-2 focus:ring-[#ee4f27]/50 focus:border-[#ee4f27]/50 hover:border-white/[0.2] transition-colors appearance-none cursor-pointer"
-                  >
-                    <option value="" disabled className="bg-[#0e0918] text-[#c4bbd3]">
-                      Select an application
-                    </option>
-                    {applicationsData?.data?.map((app) => (
-                      <option key={app.id} value={app.id} className="bg-[#0e0918] text-white">
-                        {app.name} ({app.slug})
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#c4bbd3] pointer-events-none" />
-                </div>
-              </div>
-              <div className="flex gap-3 pt-2">
-                <Button
-                  onClick={() => {
-                    if (syncAppId) {
-                      syncMutation.mutate(syncAppId);
-                      setShowSyncModal(false);
-                      setSyncAppId('');
-                    }
-                  }}
-                  disabled={!syncAppId || syncMutation.isPending}
-                >
-                  {syncMutation.isPending ? (
-                    <>
-                      <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                      Syncing...
-                    </>
-                  ) : (
-                    'Sync Buckets'
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setShowSyncModal(false);
-                    setSyncAppId('');
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Buckets Grid */}
       {isLoading ? (
         <div className="flex justify-center py-12">
@@ -304,7 +189,7 @@ export default function BucketsPage() {
         </div>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 stagger-children">
-          {data?.data?.map((bucket: Bucket) => (
+          {buckets?.map((bucket: Bucket) => (
             <Link key={bucket.id} href={`/buckets/${bucket.id}`}>
               <Card className="hover:border-[#6b21ef]/30 hover:shadow-[0_0_30px_rgba(107,33,239,0.15)] hover:scale-[1.02] transition-all duration-300 cursor-pointer h-full">
                 <CardHeader className="pb-3">
@@ -365,7 +250,7 @@ export default function BucketsPage() {
               </Card>
             </Link>
           ))}
-          {(!data?.data || data.data.length === 0) && (
+          {(!buckets || buckets.length === 0) && (
             <div className="col-span-full text-center py-16">
               <FolderOpen className="h-16 w-16 text-[#c4bbd3]/30 mx-auto mb-4" />
               <p className="text-lg font-medium text-white mb-2">No buckets found</p>

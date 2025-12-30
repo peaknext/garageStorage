@@ -162,6 +162,123 @@ export class BucketsService {
     };
   }
 
+  /**
+   * Update bucket settings or reassign to a different application (Admin only)
+   */
+  async updateAdmin(bucketId: string, dto: UpdateBucketDto) {
+    // Get current bucket with application
+    const bucket = await this.prisma.bucket.findUnique({
+      where: { id: bucketId },
+      include: { application: true },
+    });
+
+    if (!bucket) {
+      throw new NotFoundException('Bucket not found');
+    }
+
+    // Handle applicationId change (reassignment)
+    if (dto.applicationId && dto.applicationId !== bucket.applicationId) {
+      const oldAppId = bucket.applicationId;
+      const newAppId = dto.applicationId;
+
+      // Verify target app exists
+      const targetApp = await this.prisma.application.findUnique({
+        where: { id: newAppId },
+      });
+      if (!targetApp) {
+        throw new NotFoundException('Target application not found');
+      }
+
+      // Check name conflict in target app
+      const conflict = await this.prisma.bucket.findFirst({
+        where: { applicationId: newAppId, name: bucket.name },
+      });
+      if (conflict) {
+        throw new BadRequestException(
+          `Bucket "${bucket.name}" already exists in target application`,
+        );
+      }
+
+      // Check quota - block if target app would exceed
+      const bucketSize = bucket.usedBytes || BigInt(0);
+      if (targetApp.usedStorageBytes + bucketSize > targetApp.maxStorageBytes) {
+        throw new BadRequestException(
+          'Target application would exceed storage quota',
+        );
+      }
+
+      // Update in transaction
+      await this.prisma.$transaction([
+        // Update bucket's applicationId
+        this.prisma.bucket.update({
+          where: { id: bucketId },
+          data: { applicationId: newAppId },
+        }),
+        // Decrement old app's usedStorageBytes
+        this.prisma.application.update({
+          where: { id: oldAppId },
+          data: { usedStorageBytes: { decrement: bucketSize } },
+        }),
+        // Increment new app's usedStorageBytes
+        this.prisma.application.update({
+          where: { id: newAppId },
+          data: { usedStorageBytes: { increment: bucketSize } },
+        }),
+      ]);
+
+      // Trigger webhooks to both apps
+      await this.webhooks.trigger(oldAppId, 'bucket.reassigned', {
+        bucketId: bucket.id,
+        bucketName: bucket.name,
+        fromApplicationId: oldAppId,
+        toApplicationId: newAppId,
+        action: 'removed',
+      });
+      await this.webhooks.trigger(newAppId, 'bucket.reassigned', {
+        bucketId: bucket.id,
+        bucketName: bucket.name,
+        fromApplicationId: oldAppId,
+        toApplicationId: newAppId,
+        action: 'added',
+      });
+
+      this.logger.log(
+        `Bucket "${bucket.name}" reassigned from app ${oldAppId} to ${newAppId}`,
+      );
+    }
+
+    // Update other fields (quotaBytes, isPublic, corsEnabled)
+    const updated = await this.prisma.bucket.update({
+      where: { id: bucketId },
+      data: {
+        quotaBytes: dto.quotaBytes !== undefined ? BigInt(dto.quotaBytes) : undefined,
+        isPublic: dto.isPublic,
+        corsEnabled: dto.corsEnabled,
+      },
+      include: {
+        application: {
+          select: { id: true, name: true, slug: true },
+        },
+        _count: {
+          select: { files: true },
+        },
+      },
+    });
+
+    return {
+      id: updated.id,
+      name: updated.name,
+      applicationId: updated.applicationId,
+      application: updated.application,
+      usedBytes: Number(updated.usedBytes),
+      quotaBytes: updated.quotaBytes ? Number(updated.quotaBytes) : null,
+      fileCount: updated._count.files,
+      isPublic: updated.isPublic,
+      corsEnabled: updated.corsEnabled,
+      updatedAt: updated.updatedAt,
+    };
+  }
+
   async delete(appId: string, bucketId: string, force: boolean = false) {
     const bucket = await this.prisma.bucket.findFirst({
       where: { id: bucketId, applicationId: appId },
@@ -217,95 +334,5 @@ export class BucketsService {
       bucketId: bucket.id,
       name: bucket.name,
     });
-  }
-
-  /**
-   * Sync buckets from Garage to the database
-   * Imports buckets that exist in Garage but not in the database
-   */
-  async syncFromGarage(applicationId: string): Promise<{
-    synced: Array<{ id: string; name: string; garageBucketId: string }>;
-    skipped: Array<{ garageBucketId: string; reason: string }>;
-    total: number;
-  }> {
-    // Verify application exists
-    const application = await this.prisma.application.findUnique({
-      where: { id: applicationId },
-    });
-
-    if (!application) {
-      throw new NotFoundException('Application not found');
-    }
-
-    // Get all buckets from Garage
-    const garageBuckets = await this.garageAdmin.listBuckets();
-    this.logger.log(`Found ${garageBuckets.length} buckets in Garage`);
-
-    // Get all existing bucket IDs from database
-    const existingBuckets = await this.prisma.bucket.findMany({
-      select: { garageBucketId: true },
-    });
-    const existingIds = new Set(existingBuckets.map((b) => b.garageBucketId));
-
-    const synced: Array<{ id: string; name: string; garageBucketId: string }> = [];
-    const skipped: Array<{ garageBucketId: string; reason: string }> = [];
-
-    for (const garageBucket of garageBuckets) {
-      const bucketName = this.garageAdmin.getBucketName(garageBucket);
-
-      // Check if already exists by garage bucket ID
-      if (existingIds.has(garageBucket.id)) {
-        skipped.push({ garageBucketId: garageBucket.id, reason: 'Already exists in database (by ID)' });
-        continue;
-      }
-
-      // Also check by alias name (in case it was created with a different ID format)
-      if (existingIds.has(bucketName)) {
-        skipped.push({ garageBucketId: bucketName, reason: 'Already exists in database (by name)' });
-        continue;
-      }
-
-      // Check if a bucket with this name already exists for this application
-      const existingByName = await this.prisma.bucket.findFirst({
-        where: { applicationId, name: bucketName },
-      });
-
-      if (existingByName) {
-        skipped.push({ garageBucketId: garageBucket.id, reason: `Bucket name "${bucketName}" already exists for this application` });
-        continue;
-      }
-
-      // Create new bucket record
-      try {
-        const bucket = await this.prisma.bucket.create({
-          data: {
-            applicationId,
-            name: bucketName,
-            garageBucketId: garageBucket.id,
-            isPublic: false,
-            corsEnabled: true,
-          },
-        });
-
-        synced.push({
-          id: bucket.id,
-          name: bucket.name,
-          garageBucketId: bucket.garageBucketId,
-        });
-
-        this.logger.log(`Synced bucket: ${bucketName} (${garageBucket.id})`);
-      } catch (error) {
-        skipped.push({
-          garageBucketId: garageBucket.id,
-          reason: `Failed to create: ${(error as Error).message}`,
-        });
-      }
-    }
-
-    return {
-      synced,
-      skipped,
-      total: garageBuckets.length,
-    };
   }
 }
