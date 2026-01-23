@@ -730,9 +730,9 @@ DELETE /recycle-bin/{fileId}
 
 **Response:** `204 No Content`
 
-### Empty Recycle Bin
+### Empty Recycle Bin (All Buckets)
 
-Permanently delete all files in the recycle bin.
+Permanently delete **all** soft-deleted files across **all buckets** for your application.
 
 ```http
 POST /recycle-bin/purge
@@ -747,6 +747,8 @@ POST /recycle-bin/purge
 }
 ```
 
+> **Warning:** This action is irreversible and affects all buckets in your application. Use `POST /buckets/{bucketId}/recycle-bin/purge` to empty a specific bucket's recycle bin.
+
 ### List Deleted Files in Bucket
 
 ```http
@@ -757,11 +759,20 @@ GET /buckets/{bucketId}/recycle-bin?page=1&limit=50
 
 ### Empty Bucket Recycle Bin
 
+Permanently delete soft-deleted files from a **specific bucket** only.
+
 ```http
 POST /buckets/{bucketId}/recycle-bin/purge
 ```
 
-**Response:** Same format as global purge.
+**Response:**
+```json
+{
+  "deletedCount": 5,
+  "freedBytes": 5242880,
+  "failed": []
+}
+```
 
 ---
 

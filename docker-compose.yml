@@ -91,7 +91,8 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_password}
       - GARAGE_ENDPOINT=http://garage:3900
-      - GARAGE_PUBLIC_ENDPOINT=http://garage:3900
+      # Use the same IP as API_BASE_URL for network access, or localhost for local-only
+      - GARAGE_PUBLIC_ENDPOINT=http://192.168.1.121:3900
       - GARAGE_ADMIN_ENDPOINT=http://garage:3903
       - GARAGE_ADMIN_TOKEN=YWRtaW50b2tlbjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkw
       - GARAGE_REGION=garage
