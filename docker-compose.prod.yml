@@ -159,7 +159,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: skh-storage-api:latest
+    image: ${IMAGE_REGISTRY:-}skh-storage-api:${IMAGE_TAG:-latest}
     container_name: skh-storage-api
     restart: unless-stopped
     # NO ports exposed - nginx proxies to this
@@ -228,7 +228,7 @@ services:
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-/api/v1}
-    image: skh-admin-ui:latest
+    image: ${IMAGE_REGISTRY:-}skh-admin-ui:${IMAGE_TAG:-latest}
     container_name: skh-admin-ui
     restart: unless-stopped
     # NO ports exposed - nginx proxies to this

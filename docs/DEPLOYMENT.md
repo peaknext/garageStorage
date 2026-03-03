@@ -329,74 +329,200 @@ docker logs skh-nginx --tail 50
 
 ---
 
-## 6. วิธีที่ 2: Docker Hub / Registry
+## 6. วิธีที่ 2: Deploy ผ่าน Docker Hub (Online)
 
-> เหมาะสำหรับ: เซิร์ฟเวอร์ที่มี Internet และใช้ Docker Registry
+เหมาะสำหรับ server ที่ **มีอินเทอร์เน็ต** และต้องการ deploy/อัปเดตได้สะดวก
 
-### 6.1 Push Images ไปยัง Registry
+### ภาพรวมขั้นตอน
 
-**บนเครื่อง Development:**
-
-```bash
-# Login to Docker Hub (หรือ private registry)
-docker login
-
-# Build images
-docker compose -f docker-compose.prod.yml build storage-api admin-ui
-
-# Tag images
-docker tag skh-storage-api:latest your-registry/skh-storage-api:latest
-docker tag skh-storage-api:latest your-registry/skh-storage-api:v1.0.0
-docker tag skh-admin-ui:latest your-registry/skh-admin-ui:latest
-docker tag skh-admin-ui:latest your-registry/skh-admin-ui:v1.0.0
-
-# Push images
-docker push your-registry/skh-storage-api:latest
-docker push your-registry/skh-storage-api:v1.0.0
-docker push your-registry/skh-admin-ui:latest
-docker push your-registry/skh-admin-ui:v1.0.0
+```
+เครื่อง Dev                  Docker Hub                Server Production
+──────────                  ──────────                ──────────────────
+1. git tag + push    ──►    2. GitHub Actions
+                            build & push image  ──►   3. docker pull
+                                                      4. docker compose up
 ```
 
-### 6.2 Deploy บน Production Server
+### Docker Images ที่ใช้
+
+| Image | Docker Hub URL | สร้างโดย |
+|-------|---------------|---------|
+| Backend API | `peaknext/skh-storage-api` | GitHub Actions อัตโนมัติ |
+| Admin UI | `peaknext/skh-admin-ui` | GitHub Actions อัตโนมัติ |
+
+> แทนที่ `peaknext` ด้วย Docker Hub username ของคุณ
+
+**Tags ที่ใช้ได้:**
+
+| Tag | ความหมาย |
+|-----|---------|
+| `latest` | build ล่าสุด |
+| `v1.0.0` | build จาก git tag ที่ระบุ |
+
+### เตรียมการ (ทำครั้งเดียว)
+
+#### A. สร้าง Docker Hub account + access token
+
+1. ไปที่ https://hub.docker.com → สมัครสมาชิก (ฟรี)
+2. ไปที่ **Account Settings** → **Security** → **New Access Token**
+3. ตั้งชื่อ token เช่น `skh-storage-github-actions`
+4. เลือก permission: **Read, Write, Delete**
+5. คัดลอก token เก็บไว้ (จะแสดงเพียงครั้งเดียว)
+
+#### B. ตั้งค่า GitHub Secrets
+
+ไปที่ GitHub repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**:
+
+| Secret name | ค่า |
+|------------|-----|
+| `DOCKERHUB_USERNAME` | username ของ Docker Hub เช่น `peaknext` |
+| `DOCKERHUB_TOKEN` | access token ที่สร้างในข้อ A |
+
+#### C. เตรียม Production Server
+
+```bash
+# สร้าง directory สำหรับ project
+sudo mkdir -p /opt/skh-storage
+cd /opt/skh-storage
+```
+
+#### D. เตรียม Config Files บน Server
+
+คัดลอกไฟล์ต่อไปนี้จาก repository ไปยัง `/opt/skh-storage/`:
+
+```
+/opt/skh-storage/
+├── docker-compose.prod.yml
+├── .env.production.example
+├── deploy/
+│   └── pull-and-run.sh      # script deploy อัตโนมัติ
+├── nginx/
+│   ├── nginx.conf
+│   └── ssl/
+├── garage/
+│   └── garage.prod.toml
+└── scripts/
+    ├── generate-secrets.sh
+    └── ssl-setup.sh
+```
+
+```bash
+# สร้าง .env.production จากตัวอย่าง
+cp .env.production.example .env.production
+
+# สร้าง secrets อัตโนมัติ
+chmod +x scripts/*.sh deploy/*.sh
+./scripts/generate-secrets.sh --env-file .env.production
+```
+
+แก้ไข `.env.production` ตั้งค่าที่สำคัญ:
+
+```ini
+# === ตั้งค่าที่ต้องแก้ ===
+SERVER_DOMAIN=storage.your-domain.com   # หรือใช้ IP address
+SERVER_IP=YOUR_SERVER_IP
+
+# === Docker Image ===
+# ใส่ Docker Hub username ตามด้วย / (trailing slash)
+IMAGE_REGISTRY=peaknext/
+IMAGE_TAG=latest
+```
+
+### Deploy
+
+#### วิธี 1: Push tag อัตโนมัติ (แนะนำ)
+
+บนเครื่อง dev:
+
+```bash
+cd garageStorage
+
+# สร้าง git tag
+git tag v1.0.0
+
+# Push tag ไป GitHub → trigger GitHub Actions อัตโนมัติ
+git push origin v1.0.0
+```
+
+**GitHub Actions จะทำงานอัตโนมัติ** (~5-8 นาที):
+1. Build image `peaknext/skh-storage-api:v1.0.0` + `:latest`
+2. Build image `peaknext/skh-admin-ui:v1.0.0` + `:latest`
+3. Push ทั้ง 2 image ขึ้น Docker Hub
+
+ตรวจสอบสถานะ: ไปที่ GitHub repo → **Actions** tab → ดู workflow run
+
+เมื่อ build เสร็จแล้ว SSH เข้า server:
 
 ```bash
 cd /opt/skh-storage
 
-# Clone เฉพาะ config files (หรือ copy มือ)
-# ต้องการ: docker-compose.prod.yml, .env.production.example, nginx/, garage/, scripts/
-
-# สร้าง .env.production
-cp .env.production.example .env.production
-./scripts/generate-secrets.sh --env-file .env.production
-# แก้ไข .env.production ตั้งค่า SERVER_DOMAIN, SERVER_IP
-
-# แก้ docker-compose.prod.yml ให้ใช้ image จาก registry
-# เปลี่ยน:
-#   build: context: ./backend → image: your-registry/skh-storage-api:latest
-#   build: context: ./frontend → image: your-registry/skh-admin-ui:latest
-
-# Generate Garage config
-source .env.production
-envsubst < garage/garage.prod.toml > garage/garage.active.toml
-
-# Generate SSL
-./scripts/ssl-setup.sh
-
-# Pull และ start
-docker compose -f docker-compose.prod.yml --env-file .env.production pull
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
-
-# Initialize Garage
-docker exec skh-garage /garage key create storage-api-key
-# Update GARAGE_ACCESS_KEY, GARAGE_SECRET_KEY ใน .env.production
-
-# Run migrations
-docker compose -f docker-compose.prod.yml --env-file .env.production run --rm storage-api npx prisma migrate deploy
-docker compose -f docker-compose.prod.yml --env-file .env.production run --rm storage-api npx prisma db seed
-
-# Restart เพื่อใช้ Garage keys ใหม่
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+bash deploy/pull-and-run.sh v1.0.0
 ```
+
+#### วิธี 2: Trigger manual จาก GitHub UI
+
+1. ไปที่ GitHub repo → **Actions** → **Build & Push Docker Images**
+2. กด **Run workflow**
+3. ใส่ tag เช่น `v1.0.0` → กด **Run workflow**
+4. รอ build เสร็จ → SSH เข้า server → `bash deploy/pull-and-run.sh v1.0.0`
+
+### สิ่งที่ `pull-and-run.sh` ทำ
+
+| ขั้นตอน | สิ่งที่เกิดขึ้น |
+|---------|---------------|
+| Pre-flight | ตรวจ `.env.production`, `IMAGE_REGISTRY`, SSL cert (auto-gen ถ้าไม่มี) |
+| 1/4 | `docker compose pull storage-api admin-ui` — ดึง image จาก Docker Hub |
+| 2/4 | หยุด services เดิม (ถ้ามี) |
+| 3/4 | เริ่ม infrastructure (postgres, redis, garage) → รอ `pg_isready` → Prisma migration → seed |
+| 4/4 | เริ่ม services ทั้งหมด |
+| Health check | ตรวจ `https://localhost/api/v1/health` |
+
+> ครั้งแรก script จะสร้าง Garage API key ให้อัตโนมัติ และรอให้คุณใส่ key ใน `.env.production` ก่อนดำเนินการต่อ
+
+### อัปเดต Version
+
+```bash
+cd /opt/skh-storage
+
+# วิธีสั้น — ใช้ pull-and-run.sh
+bash deploy/pull-and-run.sh v1.1.0
+```
+
+หรือทำเองทีละขั้นตอน:
+
+```bash
+# Pull images ใหม่
+IMAGE_TAG=v1.1.0 docker compose -f docker-compose.prod.yml --env-file .env.production pull storage-api admin-ui
+
+# Run migrations (ถ้ามี schema changes)
+IMAGE_TAG=v1.1.0 docker compose -f docker-compose.prod.yml --env-file .env.production run --rm storage-api npx prisma migrate deploy
+
+# Restart services ด้วย images ใหม่
+IMAGE_TAG=v1.1.0 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+
+# ตรวจสอบ
+docker compose -f docker-compose.prod.yml ps
+docker logs skh-storage-api --tail 20
+```
+
+### Rollback (ย้อนกลับ version เก่า)
+
+```bash
+cd /opt/skh-storage
+
+# Deploy version เก่า (ใช้ tag ที่เคย push)
+bash deploy/pull-and-run.sh v1.0.0
+```
+
+### ตรวจสอบว่า deploy สำเร็จ
+
+| ขั้นตอน | คำสั่ง | คาดหวัง |
+|---------|--------|---------|
+| Services ทำงาน | `docker compose -f docker-compose.prod.yml ps` | ทุก service status = `Up` หรือ `healthy` |
+| API ตอบ | `curl -k https://localhost/api/v1/health` | `{"status":"ok"}` |
+| Frontend โหลด | เปิด `https://SERVER_DOMAIN` ในเบราว์เซอร์ | หน้า Login |
+| SSL ทำงาน | `curl -I https://SERVER_DOMAIN` | Status 200 + security headers |
+| Logs ปกติ | `docker logs skh-storage-api --tail 20` | ไม่มี error |
 
 ---
 

@@ -60,8 +60,9 @@ nginx/ssl/*.pem
 nginx/ssl/*.key
 nginx/ssl/*.crt
 
-# Deployment archives
-deploy/
+# Deployment archives (but track scripts)
+deploy/*.tar.gz
+deploy/*.zip
 
 # Production environment
 .env.production

@@ -1,58 +1,90 @@
-name: Deploy
+# Build Docker images and push to Docker Hub
+#
+# Triggers:
+#   - Push tag: v1.0.0, v1.2.3, etc. → tagged image
+#   - Manual dispatch with custom tag
+#
+# Required secrets:
+#   DOCKERHUB_USERNAME  — Docker Hub username
+#   DOCKERHUB_TOKEN     — Docker Hub access token (NOT password)
+#
+# Images pushed:
+#   <username>/skh-storage-api:v1.0.0, :latest
+#   <username>/skh-admin-ui:v1.0.0, :latest
+
+name: Build & Push Docker Images
 
 on:
   push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag (e.g. v1.0.0)'
+        required: true
+        default: 'latest'
 
 env:
-  NODE_VERSION: '20'
-  REGISTRY: ghcr.io
+  API_IMAGE: skh-storage-api
+  WEB_IMAGE: skh-admin-ui
 
 jobs:
   build-and-push:
-    name: Build & Push Images
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Set image prefix (lowercase)
-        run: echo "IMAGE_PREFIX=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and Push Backend
-        uses: docker/build-push-action@v5
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & push API image
+        uses: docker/build-push-action@v6
         with:
           context: ./backend
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/storage-api:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/storage-api:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.API_IMAGE }}:${{ steps.tag.outputs.version }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.API_IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build and Push Frontend
-        uses: docker/build-push-action@v5
+      - name: Build & push Admin UI image
+        uses: docker/build-push-action@v6
         with:
           context: ./frontend
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/admin-ui:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/admin-ui:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.WEB_IMAGE }}:${{ steps.tag.outputs.version }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.WEB_IMAGE }}:latest
+          build-args: |
+            NEXT_PUBLIC_API_URL=/api/v1
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "### Images pushed" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ secrets.DOCKERHUB_USERNAME }}/${{ env.API_IMAGE }}:${{ steps.tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ secrets.DOCKERHUB_USERNAME }}/${{ env.WEB_IMAGE }}:${{ steps.tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Deploy on server:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "bash deploy/pull-and-run.sh ${{ steps.tag.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
