@@ -27,8 +27,8 @@ FROM node:20-slim AS production
 
 WORKDIR /app
 
-# Install OpenSSL for runtime
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+# Install OpenSSL and curl for runtime (curl needed for Docker healthcheck)
+RUN apt-get update -y && apt-get install -y openssl curl && rm -rf /var/lib/apt/lists/*
 
 # Copy package files and prisma schema
 COPY package*.json ./
