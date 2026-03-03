@@ -161,7 +161,7 @@ fi
 echo "Running database migrations..."
 IMAGE_TAG="${TAG}" docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" \
   run --rm --entrypoint sh storage-api -c '
-    echo "DATABASE_URL is ${DATABASE_URL:+SET (hidden)}${DATABASE_URL:-NOT SET}"
+    if [ -n "${DATABASE_URL:-}" ]; then echo "DATABASE_URL is SET (hidden)"; else echo "DATABASE_URL is NOT SET"; fi
 
     # Remove TS config (jiti may fail in production) and create plain JS override
     rm -f /app/prisma/prisma.config.ts

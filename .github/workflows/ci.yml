@@ -29,9 +29,7 @@ jobs:
       - run: npm ci
 
       - name: Generate Prisma Client
-        run: |
-          npx prisma generate
-          echo "export * from './client';" > src/generated/prisma/index.ts
+        run: npx prisma generate
         env:
           DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
 
@@ -60,9 +58,7 @@ jobs:
       - run: npm ci
 
       - name: Generate Prisma Client
-        run: |
-          npx prisma generate
-          echo "export * from './client';" > src/generated/prisma/index.ts
+        run: npx prisma generate
         env:
           DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
 
