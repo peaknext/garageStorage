@@ -29,7 +29,9 @@ jobs:
       - run: npm ci
 
       - name: Generate Prisma Client
-        run: npx prisma generate --config prisma/prisma.config.ts
+        run: |
+          npx prisma generate
+          ls src/generated/prisma/index.ts || echo "WARNING: Prisma client not found at src/generated/prisma/"
         env:
           DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
 
@@ -58,7 +60,9 @@ jobs:
       - run: npm ci
 
       - name: Generate Prisma Client
-        run: npx prisma generate --config prisma/prisma.config.ts
+        run: |
+          npx prisma generate
+          ls src/generated/prisma/index.ts || echo "WARNING: Prisma client not found at src/generated/prisma/"
         env:
           DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
 
