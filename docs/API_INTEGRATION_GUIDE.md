@@ -1,6 +1,6 @@
 # SKH Storage Service - API Integration Guide
 
-> **Version**: 1.0
+> **Version**: 1.1
 > **Base URL**: `http://localhost:9001/api/v1`
 > **Swagger Docs**: `http://localhost:9001/api/docs`
 
@@ -774,6 +774,29 @@ POST /buckets/{bucketId}/recycle-bin/purge
 }
 ```
 
+### Get Recycle Bin Statistics
+
+Get summary statistics for the recycle bin.
+
+```http
+GET /recycle-bin/stats
+```
+
+**Response:**
+```json
+{
+  "totalFiles": 42,
+  "totalBytes": 1073741824,
+  "oldestFile": {
+    "name": "archive-2025-01.zip",
+    "deletedAt": "2026-02-03T10:30:45.000Z",
+    "daysRemaining": 25
+  }
+}
+```
+
+> **Note:** `oldestFile` is `null` when the recycle bin is empty. `daysRemaining` is calculated from the 30-day retention period.
+
 ---
 
 ## Tags
@@ -1077,12 +1100,14 @@ Receive real-time notifications when events occur in your storage.
 | `file.moved` | File was moved | `{fileId, fromBucket, toBucket, newKey}` |
 | `bucket.created` | Bucket was created | `{bucketId, name, garageBucketId}` |
 | `bucket.deleted` | Bucket was deleted | `{bucketId, name}` |
+| `bucket.reassigned` | Bucket reassigned to different app | `{bucketId, bucketName, fromApplicationId, toApplicationId, action}` |
 | `share.created` | Share link was created | `{shareId, fileId, fileName, expiresAt, shareUrl}` |
 | `share.accessed` | Share link was used | `{shareId, fileId, fileName, downloadCount, accessedAt}` |
 | `quota.warning` | Storage warning threshold hit | `{level, usage, threshold, applicationName}` |
 | `quota.critical` | Storage critical threshold hit | `{level, usage, threshold, applicationName}` |
 
 > **Note:** The `reason` field in `file.purged` events can be: `manual`, `auto_purge_expired`, or `empty_recycle_bin`.
+> The `action` field in `bucket.reassigned` events can be: `removed` or `added` (two events are fired per reassignment).
 
 ### Create Webhook
 
