@@ -191,15 +191,21 @@ docker run hello-world
 
 ```bash
 # Ubuntu/Debian (UFW)
-sudo ufw allow 80/tcp    # HTTP
-sudo ufw allow 443/tcp   # HTTPS
-sudo ufw allow 9004/tcp  # Garage S3 (Presigned URLs)
+sudo ufw allow 22/tcp     # SSH (สำคัญ! ต้อง allow ก่อน enable)
+sudo ufw allow 80/tcp     # HTTP
+sudo ufw allow 443/tcp    # HTTPS
+sudo ufw allow 8080/tcp   # SKH Storage HTTP (ถ้าใช้ port อื่น)
+sudo ufw allow 8443/tcp   # SKH Storage HTTPS (ถ้าใช้ port อื่น)
+sudo ufw allow 9004/tcp   # Garage S3 (Presigned URLs)
 sudo ufw enable
 sudo ufw status
 
 # CentOS/RHEL (firewalld)
+sudo firewall-cmd --permanent --add-port=22/tcp
 sudo firewall-cmd --permanent --add-port=80/tcp
 sudo firewall-cmd --permanent --add-port=443/tcp
+sudo firewall-cmd --permanent --add-port=8080/tcp
+sudo firewall-cmd --permanent --add-port=8443/tcp
 sudo firewall-cmd --permanent --add-port=9004/tcp
 sudo firewall-cmd --reload
 ```

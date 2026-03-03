@@ -57,7 +57,7 @@ echo "           ${REGISTRY}skh-admin-ui:${TAG}"
 echo ""
 
 # SSL check
-if [ ! -f nginx/ssl/cert.pem ] || [ ! -f nginx/ssl/key.pem ]; then
+if [ ! -f nginx/ssl/fullchain.pem ] || [ ! -f nginx/ssl/privkey.pem ]; then
   echo "WARNING: SSL certificates not found in nginx/ssl/"
   if [ -f scripts/ssl-setup.sh ]; then
     read -p "Generate self-signed cert now? (Y/n) " -n 1 -r
@@ -71,11 +71,23 @@ if [ ! -f nginx/ssl/cert.pem ] || [ ! -f nginx/ssl/key.pem ]; then
 fi
 
 # Generate Garage config if needed
+# Remove if accidentally created as directory
+if [ -d garage/garage.active.toml ]; then
+  rm -rf garage/garage.active.toml
+fi
+
 if [ ! -f garage/garage.active.toml ] && [ -f garage/garage.prod.toml ]; then
   echo "Generating Garage config from template..."
+  set -a
   source "${ENV_FILE}"
+  set +a
   envsubst < garage/garage.prod.toml > garage/garage.active.toml
   echo "Created garage/garage.active.toml"
+  # Verify secrets were substituted
+  if grep -q 'rpc_secret = ""' garage/garage.active.toml; then
+    echo "ERROR: GARAGE_RPC_SECRET was not substituted. Check ${ENV_FILE}"
+    exit 1
+  fi
 fi
 
 # ── Step 1: Pull images ─────────────────────────────────────────────────────
@@ -112,7 +124,21 @@ if [ -z "${GARAGE_KEY}" ] || [ "${GARAGE_KEY}" = "CHANGE_ME" ]; then
   echo ""
   echo "=== First-time Garage Setup ==="
   echo "Waiting for Garage to start..."
-  sleep 10
+  sleep 15
+
+  # Assign storage layout (required before any key/bucket operations)
+  echo "Configuring Garage storage layout..."
+  NODE_ID=$(docker exec skh-garage /garage status 2>/dev/null | grep -oP '^[a-f0-9]+' | head -1 || true)
+  if [ -n "${NODE_ID}" ]; then
+    docker exec skh-garage /garage layout assign -z dc1 -c ${GARAGE_CAPACITY:-10GB} "${NODE_ID}" 2>/dev/null || true
+    # Get current layout version and apply next
+    LAYOUT_VER=$(docker exec skh-garage /garage layout show 2>/dev/null | grep -oP 'apply --version \K[0-9]+' || echo "1")
+    docker exec skh-garage /garage layout apply --version "${LAYOUT_VER}" 2>/dev/null || true
+    echo "Storage layout configured."
+  else
+    echo "WARNING: Could not detect Garage node ID."
+  fi
+
   echo "Creating Garage API key..."
   docker exec skh-garage /garage key create storage-api-key 2>/dev/null || {
     echo "WARNING: Could not create Garage key automatically."
@@ -157,11 +183,15 @@ echo "Service status:"
 IMAGE_TAG="${TAG}" docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" ps
 
 echo ""
-if curl -sf -k https://localhost/api/v1/health > /dev/null 2>&1; then
+HTTPS_PORT=$(grep -E '^NGINX_HTTPS_PORT=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "8443")
+HTTP_PORT=$(grep -E '^NGINX_HTTP_PORT=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "8080")
+if curl -sf -k "https://localhost:${HTTPS_PORT}/api/v1/health" > /dev/null 2>&1; then
   echo "=== Deployment successful! ==="
   echo ""
   SERVER=$(grep -E '^SERVER_DOMAIN=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' || hostname -f 2>/dev/null || echo 'your-server-ip')
-  echo "Access: https://${SERVER}"
+  PORT_SUFFIX=""
+  [ "${HTTPS_PORT}" != "443" ] && PORT_SUFFIX=":${HTTPS_PORT}"
+  echo "Access: https://${SERVER}${PORT_SUFFIX}"
 elif curl -sf http://localhost:9001/health > /dev/null 2>&1; then
   echo "=== API is running (nginx may need SSL certificates) ==="
   echo "Check: docker logs skh-nginx --tail 20"
