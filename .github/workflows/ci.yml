@@ -30,8 +30,24 @@ jobs:
 
       - name: Generate Prisma Client
         run: |
-          npx prisma generate
-          ls src/generated/prisma/index.ts || echo "WARNING: Prisma client not found at src/generated/prisma/"
+          echo "Prisma version:"
+          npx prisma --version
+          echo "--- Running prisma generate ---"
+          npx prisma generate 2>&1
+          echo "--- Checking output location ---"
+          if [ -f src/generated/prisma/index.ts ]; then
+            echo "OK: Client found at src/generated/prisma/"
+          else
+            echo "Not found at src/generated/prisma/, trying --schema flag..."
+            npx prisma generate --schema prisma/schema.prisma 2>&1
+          fi
+          if [ ! -f src/generated/prisma/index.ts ]; then
+            echo "FATAL: Prisma client not generated at expected location"
+            echo "--- Searching for generated files ---"
+            find . -name "index.ts" -path "*/generated/*" 2>/dev/null || echo "No generated index.ts found anywhere"
+            find . -path "*/prisma/client*" -name "*.ts" 2>/dev/null | head -10 || echo "No prisma client files found"
+            exit 1
+          fi
         env:
           DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
 
@@ -61,8 +77,11 @@ jobs:
 
       - name: Generate Prisma Client
         run: |
-          npx prisma generate
-          ls src/generated/prisma/index.ts || echo "WARNING: Prisma client not found at src/generated/prisma/"
+          npx prisma generate 2>&1
+          if [ ! -f src/generated/prisma/index.ts ]; then
+            npx prisma generate --schema prisma/schema.prisma 2>&1
+          fi
+          test -f src/generated/prisma/index.ts || { echo "FATAL: Prisma client not generated"; exit 1; }
         env:
           DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
 
