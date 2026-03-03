@@ -29,7 +29,9 @@ jobs:
       - run: npm ci
 
       - name: Generate Prisma Client
-        run: npx prisma generate
+        run: npx prisma generate --config prisma/prisma.config.ts
+        env:
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
 
       - name: Lint
         run: npm run lint
@@ -56,7 +58,9 @@ jobs:
       - run: npm ci
 
       - name: Generate Prisma Client
-        run: npx prisma generate
+        run: npx prisma generate --config prisma/prisma.config.ts
+        env:
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
 
       - name: Build
         run: npm run build
