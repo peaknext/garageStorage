@@ -145,6 +145,8 @@ if [ -z "${GARAGE_KEY}" ] || [ "${GARAGE_KEY}" = "CHANGE_ME" ]; then
     echo "Run manually: docker exec skh-garage /garage key create storage-api-key"
     echo "Then update GARAGE_ACCESS_KEY and GARAGE_SECRET_KEY in ${ENV_FILE}"
   }
+  echo "Granting bucket creation permission..."
+  docker exec skh-garage /garage key allow --create-bucket storage-api-key 2>/dev/null || true
   echo ""
   echo ">>> IMPORTANT: Copy the Access Key and Secret Key above"
   echo ">>> Edit ${ENV_FILE} and set GARAGE_ACCESS_KEY and GARAGE_SECRET_KEY"
