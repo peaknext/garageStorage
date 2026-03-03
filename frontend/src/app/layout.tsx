@@ -9,8 +9,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'Garage Storage Admin',
-  description: 'Admin dashboard for Garage Storage Service',
+  title: 'SKH Storage Admin',
+  description: 'Admin dashboard for SKH Storage Service',
 };
 
 export default function RootLayout({

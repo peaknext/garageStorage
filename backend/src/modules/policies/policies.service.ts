@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { CronExpressionParser } from 'cron-parser';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PolicyScope, PolicyType, Prisma } from '../../generated/prisma';
 
@@ -33,6 +34,9 @@ export class PoliciesService {
   constructor(private prisma: PrismaService) {}
 
   async create(dto: CreatePolicyDto) {
+    if (dto.schedule) {
+      this.validateCronExpression(dto.schedule);
+    }
     const nextRunAt = dto.schedule ? this.calculateNextRun(dto.schedule) : null;
 
     return this.prisma.storagePolicy.create({
@@ -103,6 +107,9 @@ export class PoliciesService {
   async update(id: string, dto: UpdatePolicyDto) {
     await this.findOne(id);
 
+    if (dto.schedule) {
+      this.validateCronExpression(dto.schedule);
+    }
     const nextRunAt = dto.schedule ? this.calculateNextRun(dto.schedule) : undefined;
 
     return this.prisma.storagePolicy.update({
@@ -146,11 +153,24 @@ export class PoliciesService {
     });
   }
 
+  private validateCronExpression(schedule: string): void {
+    try {
+      CronExpressionParser.parse(schedule);
+    } catch {
+      throw new BadRequestException(
+        `Invalid cron expression: "${schedule}". Use standard cron format (e.g., "0 0 * * *" for daily, "0 */6 * * *" for every 6 hours).`,
+      );
+    }
+  }
+
   private calculateNextRun(schedule: string): Date {
-    // Simple implementation - for production use a proper cron parser
-    // This just adds 24 hours for daily schedules
-    const next = new Date();
-    next.setHours(next.getHours() + 24);
-    return next;
+    try {
+      const interval = CronExpressionParser.parse(schedule);
+      return interval.next().toDate();
+    } catch {
+      const next = new Date();
+      next.setHours(next.getHours() + 24);
+      return next;
+    }
   }
 }

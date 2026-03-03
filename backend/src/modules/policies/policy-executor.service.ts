@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { CronExpressionParser } from 'cron-parser';
 import { PrismaService } from '../../prisma/prisma.service';
 import { S3Service } from '../../services/s3/s3.service';
 import { PoliciesService } from './policies.service';
@@ -259,9 +260,16 @@ export class PolicyExecutorService {
   }
 
   private calculateNextRun(schedule: string): Date {
-    // Simple implementation - adds 24 hours for daily schedules
-    const next = new Date();
-    next.setHours(next.getHours() + 24);
-    return next;
+    try {
+      const interval = CronExpressionParser.parse(schedule);
+      return interval.next().toDate();
+    } catch (error) {
+      this.logger.warn(
+        `Invalid cron expression "${schedule}", falling back to 24h interval: ${error.message}`,
+      );
+      const next = new Date();
+      next.setHours(next.getHours() + 24);
+      return next;
+    }
   }
 }

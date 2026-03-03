@@ -1,4 +1,4 @@
-// Garage Storage Service - Prisma Schema
+// SKH Storage Service - Prisma Schema
 
 generator client {
   provider = "prisma-client"
@@ -30,12 +30,13 @@ model Application {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  buckets         Bucket[]
-  accessLogs      AccessLog[]
-  webhooks        Webhook[]
-  storagePolicies StoragePolicy[]
-  quotaAlert      QuotaAlert?
-  tags            Tag[]
+  buckets           Bucket[]
+  accessLogs        AccessLog[]
+  webhooks          Webhook[]
+  storagePolicies   StoragePolicy[]
+  quotaAlert        QuotaAlert?
+  tags              Tag[]
+  apiKeyPermissions ApiKeyPermission[]
 
   @@map("applications")
 }
@@ -125,13 +126,38 @@ model File {
   shares   FileShare[]
   tags     FileTag[]
   folders  FileFolder[]
+  versions FileVersion[]
 
   @@unique([bucketId, key])
   @@index([bucketId])
   @@index([mimeType])
   @@index([uploadedBy])
   @@index([deletedAt])
+  @@index([bucketId, checksum])
   @@map("files")
+}
+
+// ===========================================
+// File Version Model
+// ===========================================
+model FileVersion {
+  id            String  @id @default(uuid())
+  versionNumber Int     @map("version_number")
+  key           String  // S3 object key for this version
+  sizeBytes     BigInt  @map("size_bytes")
+  checksum      String?
+  etag          String?
+  uploadedBy    String? @map("uploaded_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  fileId String @map("file_id")
+  file   File   @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, versionNumber])
+  @@index([fileId])
+  @@map("file_versions")
 }
 
 enum ThumbnailStatus {
@@ -175,11 +201,12 @@ model FileShare {
 // Admin Users Model
 // ===========================================
 model AdminUser {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  passwordHash String    @map("password_hash")
-  name         String
-  role         AdminRole @default(VIEWER)
+  id               String    @id @default(uuid())
+  email            String    @unique
+  passwordHash     String    @map("password_hash")
+  name             String
+  role             AdminRole @default(VIEWER)
+  refreshTokenHash String?   @map("refresh_token_hash")
 
   lastLoginAt DateTime? @map("last_login_at")
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -246,7 +273,43 @@ model Webhook {
   applicationId String      @map("app_id")
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
+  deliveries WebhookDelivery[]
+
   @@map("webhooks")
+}
+
+// ===========================================
+// Webhook Delivery Log Model
+// ===========================================
+model WebhookDelivery {
+  id          String              @id @default(uuid())
+  event       String
+  payload     Json
+  statusCode  Int?                @map("status_code")
+  responseBody String?            @map("response_body")
+  attempt     Int                 @default(1)
+  maxAttempts Int                 @default(5) @map("max_attempts")
+  nextRetryAt DateTime?           @map("next_retry_at")
+  status      WebhookDeliveryStatus @default(PENDING)
+  errorMessage String?            @map("error_message")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  webhookId String  @map("webhook_id")
+  webhook   Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId, createdAt])
+  @@index([status, nextRetryAt])
+  @@map("webhook_deliveries")
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  RETRYING
 }
 
 // ===========================================
@@ -437,4 +500,59 @@ model FileFolder {
 
   @@id([fileId, folderId])
   @@map("file_folders")
+}
+
+// ===========================================
+// Notification Model
+// ===========================================
+model Notification {
+  id      String           @id @default(uuid())
+  type    NotificationType
+  title   String
+  message String
+  readAt  DateTime?        @map("read_at")
+
+  // Optional references
+  resourceType String? @map("resource_type")
+  resourceId   String? @map("resource_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([readAt])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  QUOTA_WARNING
+  QUOTA_CRITICAL
+  POLICY_EXECUTED
+  WEBHOOK_FAILED
+  SYSTEM
+}
+
+// ===========================================
+// API Key Permission Model (ACL)
+// ===========================================
+model ApiKeyPermission {
+  id          String   @id @default(uuid())
+  scope       ApiKeyScope
+  bucketId    String?  @map("bucket_id") // null = all buckets
+  permissions String[] // e.g. ["read", "write", "delete"]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  applicationId String      @map("application_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@map("api_key_permissions")
+}
+
+enum ApiKeyScope {
+  ALL       // Full access (backward compatible default)
+  BUCKET    // Scoped to specific bucket
+  READ_ONLY // Read-only access to all buckets
 }

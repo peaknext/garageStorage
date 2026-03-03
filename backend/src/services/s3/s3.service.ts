@@ -20,7 +20,7 @@ export class S3Service {
   private readonly logger = new Logger(S3Service.name);
 
   constructor(private configService: ConfigService) {
-    const internalEndpoint = this.configService.get('garage.endpoint') || 'http://localhost:3900';
+    const internalEndpoint = this.configService.get('garage.endpoint') || 'http://localhost:9004';
     const publicEndpoint = this.configService.get('garage.publicEndpoint') || internalEndpoint;
     const region = this.configService.get('garage.region', 'garage');
     const credentials = {

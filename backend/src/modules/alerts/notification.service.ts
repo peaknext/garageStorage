@@ -121,7 +121,7 @@ export class NotificationService {
             <p>Please take action to free up storage or increase the quota for this application.</p>
           </div>
           <div class="footer">
-            <p>This is an automated message from GarageStorage.</p>
+            <p>This is an automated message from SKH Storage.</p>
           </div>
         </div>
       </body>

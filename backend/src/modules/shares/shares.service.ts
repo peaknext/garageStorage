@@ -47,7 +47,7 @@ export class SharesService {
 
     const share = await this.prisma.fileShare.create({ data });
 
-    const baseUrl = process.env.API_BASE_URL || 'http://localhost:4001';
+    const baseUrl = process.env.API_BASE_URL || 'http://localhost:9001';
     const shareUrl = `${baseUrl}/api/v1/shares/${share.token}/download`;
 
     // Trigger webhook
@@ -200,7 +200,7 @@ export class SharesService {
       orderBy: { createdAt: 'desc' },
     });
 
-    const baseUrl = process.env.API_BASE_URL || 'http://localhost:4001';
+    const baseUrl = process.env.API_BASE_URL || 'http://localhost:9001';
 
     return shares.map((share) => ({
       id: share.id,

@@ -21,8 +21,11 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const { data } = await apiClient.post<{ accessToken: string }>('/auth/login', { email, password });
+      const { data } = await apiClient.post<{ accessToken: string; refreshToken: string }>('/auth/login', { email, password });
       localStorage.setItem('accessToken', data.accessToken);
+      if (data.refreshToken) {
+        localStorage.setItem('refreshToken', data.refreshToken);
+      }
       window.location.href = '/';
     } catch (err) {
       setError((err as Error).message || 'Login failed');
@@ -45,7 +48,7 @@ export default function LoginPage() {
             <FolderOpen className="h-8 w-8 text-white" />
           </div>
           <CardTitle className="text-2xl font-bold text-white">
-            Garage Storage
+            SKH Storage
           </CardTitle>
           <p className="text-[#c4bbd3] text-sm mt-2">
             Sign in to your admin dashboard

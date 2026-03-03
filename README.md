@@ -1,4 +1,4 @@
-# Garage Storage Service
+# SKH Storage Service
 
 A centralized file storage service using Garage (S3-Compatible) for multi-tenant web applications.
 
@@ -6,7 +6,7 @@ A centralized file storage service using Garage (S3-Compatible) for multi-tenant
 
 ### Prerequisites
 - Docker & Docker Compose
-- PostgreSQL running on localhost:5432
+- PostgreSQL Docker container on localhost:9006
 - Node.js 20+ (for local development)
 
 ### 1. Setup Environment
@@ -48,9 +48,9 @@ npx ts-node prisma/seed.ts
 
 | Service | URL |
 |---------|-----|
-| Admin Dashboard | http://localhost:4000 |
-| API Documentation | http://localhost:4001/api/docs |
-| Garage WebUI | http://localhost:3909 |
+| Admin Dashboard | http://localhost:9002 |
+| API Documentation | http://localhost:9001/api/docs |
+| Garage WebUI | http://localhost:9003 |
 
 **Default Admin Login:**
 - Email: `admin@example.com`
@@ -62,19 +62,19 @@ npx ts-node prisma/seed.ts
 ┌─────────────────┐     ┌─────────────────┐
 │   Admin UI      │     │  External Apps  │
 │  (Next.js)      │     │                 │
-│  Port: 4000     │     │                 │
+│  Port: 9002     │     │                 │
 └────────┬────────┘     └────────┬────────┘
          │ JWT Auth              │ API Key Auth
          ▼                       ▼
 ┌─────────────────────────────────────────┐
 │           Storage API (NestJS)          │
-│                Port: 4001               │
+│                Port: 9001               │
 └────────┬──────────────────┬─────────────┘
          │                  │
          ▼                  ▼
 ┌─────────────┐    ┌─────────────────────┐
 │  PostgreSQL │    │  Garage S3 Storage  │
-│  Port: 5432 │    │    Port: 3900       │
+│  Port: 9006 │    │    Port: 9004       │
 └─────────────┘    └─────────────────────┘
 ```
 
@@ -109,13 +109,13 @@ docker compose up -d --build storage-api admin-ui
 
 ```bash
 # Create a bucket
-curl -X POST http://localhost:4001/api/v1/buckets \
+curl -X POST http://localhost:9001/api/v1/buckets \
   -H "X-API-Key: gsk_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-bucket"}'
 
 # Upload a file
-curl -X POST http://localhost:4001/api/v1/buckets/{bucketId}/files/upload \
+curl -X POST http://localhost:9001/api/v1/buckets/{bucketId}/files/upload \
   -H "X-API-Key: gsk_your_api_key" \
   -F "file=@/path/to/file.jpg"
 ```
@@ -140,7 +140,7 @@ curl -X POST http://localhost:4001/api/v1/buckets/{bucketId}/files/upload \
 ## Documentation
 
 - [CLAUDE.md](CLAUDE.md) - Detailed technical documentation for AI assistants
-- [API Docs](http://localhost:4001/api/docs) - Swagger API documentation
+- [API Docs](http://localhost:9001/api/docs) - Swagger API documentation
 - [garage-storage-specification.md](garage-storage-specification.md) - Original specification
 
 ## License

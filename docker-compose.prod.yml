@@ -1,0 +1,260 @@
+# ===========================================
+# SKH Storage Service - Production Docker Compose
+# ===========================================
+# Usage:
+#   1. cp .env.production.example .env.production
+#   2. ./scripts/generate-secrets.sh --env-file .env.production
+#   3. Edit .env.production (set SERVER_DOMAIN, SERVER_IP)
+#   4. ./scripts/ssl-setup.sh
+#   5. docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+# ===========================================
+
+services:
+  # ============================================
+  # Nginx Reverse Proxy (public-facing)
+  # ============================================
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: skh-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf.template:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    environment:
+      - SERVER_DOMAIN=${SERVER_DOMAIN:-localhost}
+    entrypoint: /bin/sh -c "envsubst '$${SERVER_DOMAIN}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"
+    depends_on:
+      storage-api:
+        condition: service_healthy
+      admin-ui:
+        condition: service_started
+    networks:
+      - storage-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/nginx-health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
+  # Garage - S3 Compatible Object Storage
+  # ============================================
+  garage:
+    image: dxflrs/garage:v2.1.0
+    container_name: skh-garage
+    restart: unless-stopped
+    ports:
+      # S3 API exposed for presigned URL browser access
+      - "${GARAGE_S3_PORT:-9004}:9004"
+      # RPC, Admin, Web are internal only - NOT exposed
+    volumes:
+      - ./garage/garage.active.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    environment:
+      - RUST_LOG=garage=info
+    networks:
+      - storage-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ============================================
+  # Redis Cache (internal only)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: skh-redis
+    restart: unless-stopped
+    # NO ports exposed - internal only
+    command: >
+      redis-server
+      --port 6379
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - storage-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 768M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # PostgreSQL Database (internal only)
+  # ============================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: skh-postgres
+    restart: unless-stopped
+    # NO ports exposed - internal only
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-garageStorage}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - storage-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-garageStorage}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # Storage API Service (NestJS Backend)
+  # ============================================
+  storage-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: skh-storage-api:latest
+    container_name: skh-storage-api
+    restart: unless-stopped
+    # NO ports exposed - nginx proxies to this
+    environment:
+      - NODE_ENV=production
+      - PORT=9001
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-garageStorage}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - GARAGE_ENDPOINT=http://garage:9004
+      - GARAGE_PUBLIC_ENDPOINT=${GARAGE_PUBLIC_ENDPOINT:-http://localhost:9004}
+      - GARAGE_ADMIN_ENDPOINT=http://garage:3903
+      - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN}
+      - GARAGE_REGION=garage
+      - GARAGE_ACCESS_KEY=${GARAGE_ACCESS_KEY}
+      - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-24h}
+      - API_BASE_URL=${API_BASE_URL:-http://localhost:9001}
+      - ADMIN_UI_URL=${ADMIN_UI_URL:-https://localhost}
+      # Email
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_SECURE=${SMTP_SECURE:-false}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-noreply@skhstorage.local}
+      # Storage defaults
+      - DEFAULT_BUCKET_QUOTA_GB=${DEFAULT_BUCKET_QUOTA_GB:-10}
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-100}
+      - PRESIGNED_URL_EXPIRES_SECONDS=${PRESIGNED_URL_EXPIRES_SECONDS:-3600}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      garage:
+        condition: service_healthy
+    networks:
+      - storage-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "10"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9001/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ============================================
+  # Admin Frontend (Next.js)
+  # ============================================
+  admin-ui:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-/api/v1}
+    image: skh-admin-ui:latest
+    container_name: skh-admin-ui
+    restart: unless-stopped
+    # NO ports exposed - nginx proxies to this
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-/api/v1}
+    depends_on:
+      - storage-api
+    networks:
+      - storage-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  garage-meta:
+  garage-data:
+  redis-data:
+  postgres-data:
+
+networks:
+  storage-network:
+    driver: bridge

@@ -34,6 +34,7 @@ import {
   Database,
   ChevronLeft,
   ChevronRight,
+  Pencil,
 } from 'lucide-react';
 import { FilePreviewModal } from './file-preview-modal';
 import { TagPicker } from './tag-picker';
@@ -143,6 +144,7 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
   const [showMoveToFolder, setShowMoveToFolder] = useState(false);
   const [showBulkTagPicker, setShowBulkTagPicker] = useState(false);
   const [jumpToPage, setJumpToPage] = useState('');
+  const [renamingFile, setRenamingFile] = useState<{ id: string; name: string } | null>(null);
 
   // Debounced search state
   const [localSearch, setLocalSearch] = useState(filters?.search || '');
@@ -221,6 +223,16 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
     },
     onSuccess: () => {
       setSelectedFiles(new Set());
+      queryClient.invalidateQueries({ queryKey: ['bucket-files', bucketId] });
+    },
+  });
+
+  const renameMutation = useMutation({
+    mutationFn: async ({ fileId, originalName }: { fileId: string; originalName: string }) => {
+      await apiClient.patch(`/admin/buckets/${bucketId}/files/${fileId}`, { originalName });
+    },
+    onSuccess: () => {
+      setRenamingFile(null);
       queryClient.invalidateQueries({ queryKey: ['bucket-files', bucketId] });
     },
   });
@@ -440,6 +452,38 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
                 >
                   <FolderInput className="mr-2 h-4 w-4" />
                   Move ({selectedFiles.size})
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      const response = await fetch(
+                        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9001/api/v1'}/admin/buckets/${bucketId}/files/download-zip`,
+                        {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
+                          },
+                          body: JSON.stringify({ fileIds: Array.from(selectedFiles) }),
+                        },
+                      );
+                      if (response.ok) {
+                        const blob = await response.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = response.headers.get('content-disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'download.zip';
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }
+                    } catch (err) {
+                      console.error('ZIP download failed:', err);
+                    }
+                  }}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  ZIP ({selectedFiles.size})
                 </Button>
                 <Button
                   variant="outline"
@@ -665,6 +709,16 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
                         >
                           <Eye className="h-4 w-4" />
                           Preview
+                        </button>
+                        <button
+                          onClick={() => {
+                            setRenamingFile({ id: file.id, name: file.originalName });
+                            setOpenDropdown(null);
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white hover:bg-white/[0.05]"
+                        >
+                          <Pencil className="h-4 w-4" />
+                          Rename
                         </button>
                         <button
                           onClick={() => {
@@ -924,6 +978,41 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
           onClose={() => setShowBulkTagPicker(false)}
           onSuccess={() => setSelectedFiles(new Set())}
         />
+      )}
+
+      {/* Rename Dialog */}
+      {renamingFile && mounted && createPortal(
+        <>
+          <div className="fixed inset-0 z-[99999] flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setRenamingFile(null)} />
+            <div className="relative bg-[#1a1025] border border-white/[0.1] rounded-2xl p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold text-white mb-4">Rename File</h3>
+              <Input
+                value={renamingFile.name}
+                onChange={(e) => setRenamingFile({ ...renamingFile, name: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && renamingFile.name.trim()) {
+                    renameMutation.mutate({ fileId: renamingFile.id, originalName: renamingFile.name.trim() });
+                  }
+                  if (e.key === 'Escape') setRenamingFile(null);
+                }}
+                autoFocus
+                placeholder="File name"
+                className="mb-4"
+              />
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setRenamingFile(null)}>Cancel</Button>
+                <Button
+                  onClick={() => renameMutation.mutate({ fileId: renamingFile.id, originalName: renamingFile.name.trim() })}
+                  disabled={!renamingFile.name.trim() || renameMutation.isPending}
+                >
+                  {renameMutation.isPending ? 'Renaming...' : 'Rename'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </>,
+        document.body
       )}
     </div>
   );

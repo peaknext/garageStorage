@@ -1,0 +1,68 @@
+# ===========================================
+# Garage Configuration - PRODUCTION
+# ===========================================
+# WARNING: This file contains ${VAR} placeholders.
+# Run envsubst or import-and-run.sh to generate garage.active.toml
+# before mounting in Docker.
+# ===========================================
+
+# Metadata directory (recommend SSD for performance)
+metadata_dir = "/var/lib/garage/meta"
+
+# Data directory (main storage - can be HDD)
+data_dir = "/var/lib/garage/data"
+
+# Database engine: lmdb for production (better performance than sqlite)
+db_engine = "lmdb"
+
+# Auto snapshot metadata every 6 hours
+metadata_auto_snapshot_interval = "6h"
+
+# Replication factor (1 for single node, 3 for cluster)
+replication_factor = 1
+
+# Compression level (0-9, 2 is good balance of speed/size)
+compression_level = 2
+
+# Block size for chunking large files
+block_size = "1M"
+
+# ===========================================
+# RPC Configuration
+# ===========================================
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+# RPC secret - MUST be replaced via envsubst
+# Generate with: openssl rand -hex 32
+rpc_secret = "${GARAGE_RPC_SECRET}"
+
+# ===========================================
+# S3 API Configuration
+# ===========================================
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "[::]:9004"
+root_domain = ".s3.storage.local"
+
+# ===========================================
+# S3 Web Static Hosting
+# ===========================================
+[s3_web]
+bind_addr = "[::]:3902"
+root_domain = ".web.storage.local"
+index = "index.html"
+
+# ===========================================
+# Admin API Configuration
+# ===========================================
+[admin]
+api_bind_addr = "[::]:3903"
+
+# Admin token - MUST be replaced via envsubst
+# Generate with: openssl rand -base64 32
+admin_token = "${GARAGE_ADMIN_TOKEN}"
+
+# Metrics token for monitoring - MUST be replaced via envsubst
+# Generate with: openssl rand -base64 32
+metrics_token = "${GARAGE_METRICS_TOKEN}"

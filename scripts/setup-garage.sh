@@ -7,7 +7,7 @@
 set -e
 
 echo "========================================="
-echo "Garage Storage Service - Initial Setup"
+echo "SKH Storage Service - Initial Setup"
 echo "========================================="
 
 # Wait for Garage to be ready

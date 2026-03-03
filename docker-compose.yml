@@ -1,5 +1,5 @@
-# Garage Storage Service - Docker Compose Configuration
-# PostgreSQL uses existing local instance (not in Docker)
+# SKH Storage Service - Docker Compose Configuration
+# All services including PostgreSQL are containerized
 
 services:
   # ============================================
@@ -10,7 +10,7 @@ services:
     container_name: garage-storage
     restart: unless-stopped
     ports:
-      - "3900:3900" # S3 API
+      - "9004:9004" # S3 API
       - "3901:3901" # RPC (internal)
       - "3902:3902" # Web serving
       - "3903:3903" # Admin API
@@ -37,10 +37,10 @@ services:
     container_name: garage-webui
     restart: unless-stopped
     ports:
-      - "3909:3909"
+      - "9003:3909"
     environment:
       - API_BASE_URL=http://garage:3903
-      - S3_ENDPOINT_URL=http://garage:3900
+      - S3_ENDPOINT_URL=http://garage:9004
       - ADMIN_TOKEN=YWRtaW50b2tlbjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkw
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
@@ -58,15 +58,38 @@ services:
     container_name: garage-redis
     restart: unless-stopped
     ports:
-      - "6378:6378"
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+      - "9005:9005"
+    command: redis-server --port 9005 --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
     volumes:
       - redis-data:/data
     networks:
       - storage-network
     healthcheck:
       test:
-        ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_password}", "ping"]
+        ["CMD", "redis-cli", "-p", "9005", "-a", "${REDIS_PASSWORD:-redis_password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # PostgreSQL Database
+  # ============================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: garage-postgres
+    restart: unless-stopped
+    ports:
+      - "9006:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: garageStorage
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - storage-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d garageStorage"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -81,18 +104,18 @@ services:
     container_name: storage-api
     restart: unless-stopped
     ports:
-      - "4001:4001"
+      - "9001:9001"
     environment:
       - NODE_ENV=production
-      - PORT=4001
-      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@host.docker.internal:5432/garageStorage
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_password}@redis:6379
+      - PORT=9001
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@postgres:5432/garageStorage
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_password}@redis:9005
       - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - REDIS_PORT=9005
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_password}
-      - GARAGE_ENDPOINT=http://garage:3900
+      - GARAGE_ENDPOINT=http://garage:9004
       # Use the same IP as API_BASE_URL for network access, or localhost for local-only
-      - GARAGE_PUBLIC_ENDPOINT=http://192.168.1.121:3900
+      - GARAGE_PUBLIC_ENDPOINT=http://192.168.1.121:9004
       - GARAGE_ADMIN_ENDPOINT=http://garage:3903
       - GARAGE_ADMIN_TOKEN=YWRtaW50b2tlbjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkw
       - GARAGE_REGION=garage
@@ -100,16 +123,22 @@ services:
       - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY}
       - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRES_IN=7d
-      - API_BASE_URL=http://192.168.1.121:4001
+      - API_BASE_URL=http://192.168.1.121:9001
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       garage:
         condition: service_healthy
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       - storage-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9001/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # ============================================
   # Admin Frontend (Next.js)
@@ -121,10 +150,10 @@ services:
     container_name: storage-admin-ui
     restart: unless-stopped
     ports:
-      - "4000:3000"
+      - "9002:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:4001/api/v1
-      - NEXT_PUBLIC_GARAGE_ENDPOINT=http://localhost:3900
+      - NEXT_PUBLIC_API_URL=http://localhost:9001/api/v1
+      - NEXT_PUBLIC_GARAGE_ENDPOINT=http://localhost:9004
     depends_on:
       - storage-api
     networks:
@@ -134,6 +163,7 @@ volumes:
   garage-meta:
   garage-data:
   redis-data:
+  postgres-data:
 
 networks:
   storage-network:

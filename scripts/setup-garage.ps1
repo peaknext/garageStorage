@@ -1,4 +1,4 @@
-# Garage Storage Setup Script for Windows
+# SKH Storage Setup Script for Windows
 # This script configures Garage S3-compatible storage after container startup
 
 param(
@@ -14,7 +14,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Garage Storage Setup Script" -ForegroundColor Cyan
+Write-Host "  SKH Storage Setup Script" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 

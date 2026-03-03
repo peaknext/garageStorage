@@ -1,4 +1,4 @@
-# Garage Storage Service Specification
+# SKH Storage Service Specification
 
 > ระบบจัดเก็บไฟล์กลางที่ใช้ Garage (S3-Compatible) สำหรับให้เว็บแอพพลิเคชันต่างๆ เรียกใช้งาน
 
@@ -47,7 +47,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Garage Storage Service                        │
+│                    SKH Storage Service                           │
 ├─────────────────────────────────────────────────────────────────┤
 │  ✓ Multi-tenant Application Support                             │
 │  ✓ S3-Compatible API (via Garage)                               │
@@ -80,21 +80,21 @@
                                      ▼
                     ┌────────────────────────────────┐
                     │     API Gateway / Load LB      │
-                    │         (Port: 4000)           │
+                    │         (Port: 9002)           │
                     └────────────────┬───────────────┘
                                      │
                                      ▼
                     ┌────────────────────────────────┐
                     │       Storage API Service      │
                     │          (NestJS)              │
-                    │         Port: 4001             │
+                    │         Port: 9001             │
                     └───────┬───────────────┬────────┘
                             │               │
               ┌─────────────┴───┐       ┌───┴─────────────┐
               ▼                 ▼       ▼                 ▼
     ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
     │   PostgreSQL    │   │     Garage      │   │     Redis       │
-    │   Port: 5432    │   │   Port: 3900    │   │   Port: 6379    │
+    │   Port: 9006    │   │   Port: 9004    │   │   Port: 9005    │
     │ DB: garageStorage│   │ (S3 Compatible) │   │   (Cache)       │
     └─────────────────┘   └─────────────────┘   └─────────────────┘
 ```
@@ -192,7 +192,7 @@ services:
     restart: unless-stopped
     command: server
     ports:
-      - "3900:3900"  # S3 API
+      - "9004:9004"  # S3 API
       - "3901:3901"  # RPC (internal)
       - "3902:3902"  # Web serving
       - "3903:3903"  # Admin API
@@ -218,12 +218,12 @@ services:
     container_name: garage-webui
     restart: unless-stopped
     ports:
-      - "3909:3909"
+      - "9003:3909"
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
     environment:
       - API_BASE_URL=http://garage:3903
-      - S3_ENDPOINT_URL=http://garage:3900
+      - S3_ENDPOINT_URL=http://garage:9004
     depends_on:
       - garage
     networks:
@@ -237,10 +237,10 @@ services:
     container_name: garage-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "9006:5432"
     environment:
-      POSTGRES_USER: garage_admin
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your_secure_password}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: garageStorage
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -248,7 +248,7 @@ services:
     networks:
       - storage-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U garage_admin -d garageStorage"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d garageStorage"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -261,14 +261,14 @@ services:
     container_name: garage-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+      - "9005:9005"
+    command: redis-server --port 9005 --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
     volumes:
       - redis-data:/data
     networks:
       - storage-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-p", "9005", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -283,13 +283,13 @@ services:
     container_name: storage-api
     restart: unless-stopped
     ports:
-      - "4001:4001"
+      - "9001:9001"
     environment:
       - NODE_ENV=production
-      - PORT=4001
-      - DATABASE_URL=postgresql://garage_admin:${POSTGRES_PASSWORD:-your_secure_password}@postgres:5432/garageStorage
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_password}@redis:6379
-      - GARAGE_ENDPOINT=http://garage:3900
+      - PORT=9001
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@postgres:5432/garageStorage
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_password}@redis:9005
+      - GARAGE_ENDPOINT=http://garage:9004
       - GARAGE_REGION=garage
       - GARAGE_ACCESS_KEY=${GARAGE_ACCESS_KEY}
       - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY}
@@ -315,10 +315,10 @@ services:
     container_name: storage-admin-ui
     restart: unless-stopped
     ports:
-      - "4000:3000"
+      - "9002:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://storage-api:4001
-      - NEXT_PUBLIC_GARAGE_ENDPOINT=http://localhost:3900
+      - NEXT_PUBLIC_API_URL=http://storage-api:9001
+      - NEXT_PUBLIC_GARAGE_ENDPOINT=http://localhost:9004
     depends_on:
       - storage-api
     networks:
@@ -383,7 +383,7 @@ rpc_secret = "YOUR_RPC_SECRET_HERE"
 # ===========================================
 [s3_api]
 s3_region = "garage"
-api_bind_addr = "[::]:3900"
+api_bind_addr = "[::]:9004"
 root_domain = ".s3.storage.local"
 
 # ===========================================
@@ -421,8 +421,7 @@ metrics_token = "YOUR_METRICS_TOKEN_HERE"
 # ===========================================
 # PostgreSQL Configuration
 # ===========================================
-POSTGRES_PASSWORD=your_very_secure_password_here
-POSTGRES_USER=garage_admin
+DB_PASSWORD=your_very_secure_password_here
 POSTGRES_DB=garageStorage
 
 # ===========================================
@@ -447,8 +446,8 @@ JWT_EXPIRES_IN=7d
 # Application Settings
 # ===========================================
 NODE_ENV=production
-API_PORT=4001
-ADMIN_UI_PORT=4000
+API_PORT=9001
+ADMIN_UI_PORT=9002
 
 # ===========================================
 # Storage Defaults
@@ -2819,7 +2818,7 @@ export default async function DashboardPage() {
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from 'axios';
 import { getSession, signOut } from 'next-auth/react';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001/api/v1';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9001/api/v1';
 
 class ApiClient {
   private instance: AxiosInstance;
@@ -3137,9 +3136,9 @@ const securityHeaders = {
 ### 8.1 JavaScript/TypeScript SDK
 
 ```typescript
-// @garage-storage/sdk
+// @skh-storage/sdk
 
-interface GarageStorageConfig {
+interface SKHStorageConfig {
   endpoint: string;
   apiKey: string;
 }
@@ -3159,11 +3158,11 @@ interface DownloadOptions {
   expiresIn?: number;
 }
 
-class GarageStorageClient {
+class SKHStorageClient {
   private endpoint: string;
   private apiKey: string;
 
-  constructor(config: GarageStorageConfig) {
+  constructor(config: SKHStorageConfig) {
     this.endpoint = config.endpoint.replace(/\/$/, '');
     this.apiKey = config.apiKey;
   }
@@ -3306,9 +3305,9 @@ class GarageStorageClient {
 }
 
 // Export
-export { GarageStorageClient };
+export { SKHStorageClient };
 export type {
-  GarageStorageConfig,
+  SKHStorageConfig,
   UploadOptions,
   DownloadOptions,
   UploadedFile,
@@ -3320,10 +3319,10 @@ export type {
 ```typescript
 // In OrgConnect or any other app
 
-import { GarageStorageClient } from '@garage-storage/sdk';
+import { SKHStorageClient } from '@skh-storage/sdk';
 
 // Initialize client
-const storage = new GarageStorageClient({
+const storage = new SKHStorageClient({
   endpoint: 'https://storage.example.com/api/v1',
   apiKey: 'your-api-key',
 });
@@ -3429,8 +3428,8 @@ services:
     image: postgres:16-alpine
     restart: always
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: garageStorage
     volumes:
       - /data/postgres:/var/lib/postgresql/data
@@ -3455,9 +3454,9 @@ services:
     restart: always
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/garageStorage
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
-      - GARAGE_ENDPOINT=http://garage:3900
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@postgres:5432/garageStorage
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:9005
+      - GARAGE_ENDPOINT=http://garage:9004
       - GARAGE_ACCESS_KEY=${GARAGE_ACCESS_KEY}
       - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY}
       - JWT_SECRET=${JWT_SECRET}
@@ -3500,15 +3499,15 @@ networks:
 # /etc/nginx/sites-available/storage
 
 upstream storage_api {
-    server 127.0.0.1:4001;
+    server 127.0.0.1:9001;
 }
 
 upstream storage_admin {
-    server 127.0.0.1:4000;
+    server 127.0.0.1:9002;
 }
 
 upstream garage_s3 {
-    server 127.0.0.1:3900;
+    server 127.0.0.1:9004;
 }
 
 # API Server

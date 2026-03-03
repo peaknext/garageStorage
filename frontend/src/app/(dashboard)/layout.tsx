@@ -1,8 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/layout/sidebar';
+import { useSSE } from '@/hooks/use-sse';
+import { useKeyboardShortcuts, useShortcutsDialog } from '@/hooks/use-keyboard-shortcuts';
+import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog';
 
 export default function DashboardLayout({
   children,
@@ -11,6 +14,7 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { isOpen: shortcutsOpen, toggle: toggleShortcuts, close: closeShortcuts } = useShortcutsDialog();
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -20,6 +24,27 @@ export default function DashboardLayout({
       setIsAuthenticated(true);
     }
   }, [router]);
+
+  // Connect to SSE for real-time updates
+  useSSE();
+
+  // Global keyboard shortcuts
+  const shortcuts = useMemo(
+    () => ({
+      '?': toggleShortcuts,
+      '/': () => {
+        const searchInput = document.querySelector<HTMLInputElement>(
+          'input[placeholder*="Search"], input[placeholder*="search"]',
+        );
+        if (searchInput) searchInput.focus();
+      },
+      Escape: () => {
+        if (shortcutsOpen) closeShortcuts();
+      },
+    }),
+    [toggleShortcuts, closeShortcuts, shortcutsOpen],
+  );
+  useKeyboardShortcuts(shortcuts);
 
   if (!isAuthenticated) {
     return (
@@ -38,6 +63,7 @@ export default function DashboardLayout({
       <main className="flex-1 overflow-auto p-8">
         <div className="mx-auto max-w-7xl animate-fade-in">{children}</div>
       </main>
+      <KeyboardShortcutsDialog isOpen={shortcutsOpen} onClose={closeShortcuts} />
     </div>
   );
 }

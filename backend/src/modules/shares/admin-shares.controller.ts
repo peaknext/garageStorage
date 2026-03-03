@@ -82,7 +82,7 @@ export class AdminSharesController {
       this.prisma.fileShare.count({ where }),
     ]);
 
-    const baseUrl = process.env.API_BASE_URL || 'http://localhost:4001';
+    const baseUrl = process.env.API_BASE_URL || 'http://localhost:9001';
 
     return {
       data: shares.map((share) => ({

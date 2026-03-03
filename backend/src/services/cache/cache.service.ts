@@ -9,7 +9,7 @@ export class CacheService implements OnModuleDestroy {
 
   constructor(private configService: ConfigService) {
     const redisUrl = this.configService.get<string>('redis.url');
-    this.redis = new Redis(redisUrl || 'redis://localhost:6379');
+    this.redis = new Redis(redisUrl || 'redis://localhost:9005');
 
     this.redis.on('connect', () => {
       this.logger.log('Connected to Redis');

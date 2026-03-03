@@ -4,6 +4,7 @@ import {
   Post,
   Param,
   Query,
+  Body,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -58,5 +59,23 @@ export class AdminProcessingController {
   @ApiOperation({ summary: 'Regenerate thumbnails for all images in bucket' })
   async regenerateThumbnails(@Param('bucketId') bucketId: string) {
     return this.processingService.regenerateBucketThumbnails(bucketId);
+  }
+
+  @Post('files/:fileId/optimize')
+  @ApiOperation({ summary: 'Optimize image (resize + compress)' })
+  async optimizeImage(
+    @Param('fileId') fileId: string,
+    @Body() dto: { preset?: 'web' | 'mobile' | 'original-optimized' | 'custom'; width?: number; height?: number; quality?: number; format?: 'webp' | 'jpeg' | 'png' | 'avif' },
+  ) {
+    return this.processingService.optimizeImage(fileId, dto.preset || 'web', dto);
+  }
+
+  @Post('files/:fileId/convert')
+  @ApiOperation({ summary: 'Convert image format' })
+  async convertImage(
+    @Param('fileId') fileId: string,
+    @Body() dto: { format: 'jpeg' | 'png' | 'webp' | 'avif' },
+  ) {
+    return this.processingService.convertImage(fileId, dto.format);
   }
 }

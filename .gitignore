@@ -55,6 +55,20 @@ backend/src/generated/
 # Testing
 *.test.ts.snap
 
+# SSL certificates
+nginx/ssl/*.pem
+nginx/ssl/*.key
+nginx/ssl/*.crt
+
+# Deployment archives
+deploy/
+
+# Production environment
+.env.production
+
+# Generated Garage config (from envsubst)
+garage/garage.active.toml
+
 # Misc
 .cache/
 tmp/

@@ -1,4 +1,4 @@
-# Garage Storage API - Quick Reference Card
+# SKH Storage API - Quick Reference Card
 
 ## Authentication
 
@@ -190,9 +190,9 @@ Header: X-API-Key: your_api_key_here
 
 | Service | Port |
 |---------|------|
-| Storage API | 4001 |
-| Swagger Docs | 4001/api/docs |
-| Admin UI | 4000 |
+| Storage API | 9001 |
+| Swagger Docs | 9001/api/docs |
+| Admin UI | 9002 |
 
 ---
 
@@ -201,7 +201,7 @@ Header: X-API-Key: your_api_key_here
 ```bash
 # Set API key
 export API_KEY="your_key"
-export BASE="http://localhost:4001/api/v1"
+export BASE="http://localhost:9001/api/v1"
 
 # Create bucket
 curl -X POST "$BASE/buckets" \

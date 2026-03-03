@@ -10,7 +10,7 @@ A centralized file storage service using Garage (S3-Compatible Object Storage) f
 
 - **Backend**: NestJS + TypeScript, PostgreSQL (Prisma ORM), Redis cache, Garage S3 storage
 - **Frontend**: Next.js 14 (App Router), Tailwind CSS + shadcn/ui, TanStack Query, Axios, Zustand (state), Recharts (analytics)
-- **Infrastructure**: Docker Compose, Garage v2.1.0, PostgreSQL (local, not containerized)
+- **Infrastructure**: Docker Compose, Garage v2.1.0, PostgreSQL (Docker container)
 - **Processing**: Sharp (image thumbnails), Bull (background jobs), @nestjs/schedule (cron), EventEmitter (async events)
 
 ## 🚨 Critical Development Rules
@@ -36,7 +36,7 @@ cd frontend && npx tsc --noEmit    # Frontend type check (no output)
 #### Rule 2: Test on dev server before building docker image
 
 ```bash
-# Backend: localhost:4001
+# Backend: localhost:9001
 cd backend && npm run start:dev
 
 # Frontend: localhost:3000
@@ -107,19 +107,19 @@ npx prisma db seed                            # Run seed script
 ┌─────────────────┐     ┌─────────────────┐
 │   Admin UI      │     │  External Apps  │
 │  (Next.js)      │     │                 │
-│  Port: 4000     │     │                 │
+│  Port: 9002     │     │                 │
 └────────┬────────┘     └────────┬────────┘
          │ JWT Auth              │ API Key Auth
          ▼                       ▼
 ┌─────────────────────────────────────────┐
 │           Storage API (NestJS)          │
-│                Port: 4001               │
+│                Port: 9001               │
 └────────┬──────────────────┬─────────────┘
          │                  │
          ▼                  ▼
 ┌─────────────┐    ┌─────────────────────┐
 │  PostgreSQL │    │  Garage S3 Storage  │
-│  Port: 5432 │    │    Port: 3900       │
+│  Port: 9006 │    │    Port: 9004       │
 └─────────────┘    └─────────────────────┘
 ```
 
@@ -146,11 +146,11 @@ The S3 service uses two clients to handle Docker networking:
 
 ```typescript
 // Internal client - for server-side operations (uploads, deletes)
-// Uses: GARAGE_ENDPOINT (http://garage:3900 - Docker network)
+// Uses: GARAGE_ENDPOINT (http://garage:9004 - Docker network)
 s3Client;
 
 // Public client - for generating presigned URLs
-// Uses: GARAGE_PUBLIC_ENDPOINT (http://localhost:3900 - browser accessible)
+// Uses: GARAGE_PUBLIC_ENDPOINT (http://localhost:9004 - browser accessible)
 s3PublicClient;
 ```
 
@@ -260,30 +260,30 @@ Key variables in docker-compose.yml for `storage-api`:
 
 | Variable                 | Description                           | Example                 |
 | ------------------------ | ------------------------------------- | ----------------------- |
-| `GARAGE_ENDPOINT`        | Internal S3 endpoint (Docker network) | `http://garage:3900`    |
-| `GARAGE_PUBLIC_ENDPOINT` | Public S3 endpoint (browser access)   | `http://localhost:3900` |
+| `GARAGE_ENDPOINT`        | Internal S3 endpoint (Docker network) | `http://garage:9004`    |
+| `GARAGE_PUBLIC_ENDPOINT` | Public S3 endpoint (browser access)   | `http://localhost:9004` |
 | `GARAGE_ADMIN_ENDPOINT`  | Garage admin API endpoint             | `http://garage:3903`    |
 | `GARAGE_ADMIN_TOKEN`     | Garage admin API token (from garage.toml) | Base64-encoded string |
-| `API_BASE_URL`           | Public API URL for share links        | `http://localhost:4001` |
+| `API_BASE_URL`           | Public API URL for share links        | `http://localhost:9001` |
 
 ## Service Ports
 
 | Service             | Port          | Notes                    |
 | ------------------- | ------------- | ------------------------ |
-| Admin UI (Docker)   | 4000          | Production container     |
+| Admin UI (Docker)   | 9002          | Production container     |
 | Admin UI (Dev)      | 3000          | `npm run dev` in frontend|
-| Storage API         | 4001          | Both Docker and dev      |
-| Swagger Docs        | 4001/api/docs |                          |
-| Garage S3           | 3900          |                          |
+| Storage API         | 9001          | Both Docker and dev      |
+| Swagger Docs        | 9001/api/docs |                          |
+| Garage S3           | 9004          |                          |
 | Garage Admin        | 3903          |                          |
-| Garage WebUI        | 3909          |                          |
-| Redis               | 6379          |                          |
-| PostgreSQL          | 5432          |                          |
+| Garage WebUI        | 9003          |                          |
+| Redis               | 9005          |                          |
+| PostgreSQL          | 9006          | Docker container         |
 
 ## Default Credentials
 
 - **Admin Dashboard**: `admin@example.com` / `admin123`
-- **PostgreSQL**: `postgres` / `5432` on database `garageStorage`
+- **PostgreSQL**: `postgres` / `9006` on database `garageStorage`
 
 ## Adding Features
 
@@ -490,9 +490,9 @@ Bull queues require **individual Redis config vars**, not just `REDIS_URL`:
 ```yaml
 # docker-compose.yml - storage-api service
 environment:
-  - REDIS_URL=redis://:password@redis:6379 # For general Redis client
+  - REDIS_URL=redis://:password@redis:9005 # For general Redis client
   - REDIS_HOST=redis # Required for Bull
-  - REDIS_PORT=6379 # Required for Bull
+  - REDIS_PORT=9005 # Required for Bull
   - REDIS_PASSWORD=${REDIS_PASSWORD} # Required for Bull
 ```
 

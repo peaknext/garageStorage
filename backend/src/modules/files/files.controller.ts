@@ -21,6 +21,7 @@ import {
   ApiQuery,
   ApiConsumes,
   ApiBody,
+  ApiResponse,
 } from '@nestjs/swagger';
 import { FilesService } from './files.service';
 import { PresignedUploadDto } from './dto/presigned-upload.dto';
@@ -30,6 +31,11 @@ import { MoveFileDto } from './dto/move-file.dto';
 import { SearchFilesDto } from './dto/search-files.dto';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
 import { CurrentApp } from '../../common/decorators/current-app.decorator';
+import {
+  FileResponseDto,
+  UploadPresignedResponseDto,
+  DownloadUrlResponseDto,
+} from '../../common/dto/response.dto';
 
 @ApiTags('files')
 @Controller('buckets/:bucketId/files')
@@ -40,6 +46,7 @@ export class FilesController {
 
   @Get()
   @ApiOperation({ summary: 'List files in bucket' })
+  @ApiResponse({ status: 200, description: 'Paginated list of files', type: [FileResponseDto] })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'prefix', required: false, type: String })
@@ -68,6 +75,7 @@ export class FilesController {
 
   @Post('presigned-upload')
   @ApiOperation({ summary: 'Get presigned URL for direct upload' })
+  @ApiResponse({ status: 201, description: 'Presigned upload URL and metadata', type: UploadPresignedResponseDto })
   async getPresignedUploadUrl(
     @CurrentApp() app: { id: string },
     @Param('bucketId') bucketId: string,
@@ -119,6 +127,7 @@ export class FilesController {
 
   @Get(':fileId')
   @ApiOperation({ summary: 'Get file details' })
+  @ApiResponse({ status: 200, description: 'File details', type: FileResponseDto })
   async getFileDetails(
     @CurrentApp() app: { id: string },
     @Param('bucketId') bucketId: string,
@@ -129,6 +138,7 @@ export class FilesController {
 
   @Get(':fileId/download')
   @ApiOperation({ summary: 'Get download URL' })
+  @ApiResponse({ status: 200, description: 'Presigned download URL', type: DownloadUrlResponseDto })
   @ApiQuery({ name: 'expiresIn', required: false, type: Number })
   async getDownloadUrl(
     @CurrentApp() app: { id: string },

@@ -126,7 +126,7 @@ export default function AuditPage() {
 
     const token = localStorage.getItem('accessToken');
     const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001/api/v1'}/admin/audit/export?${params}`,
+      `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9001/api/v1'}/admin/audit/export?${params}`,
       {
         headers: { Authorization: `Bearer ${token}` },
       }

@@ -44,7 +44,7 @@ RUN npx prisma generate
 COPY --from=builder /app/dist ./dist
 
 # Expose port
-EXPOSE 4001
+EXPOSE 9001
 
 # Start command
 CMD ["node", "dist/src/main"]

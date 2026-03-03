@@ -162,11 +162,17 @@ export function UploadModal({ bucketId, onClose, onSuccess }: UploadModalProps) 
   };
 
   const uploadAllFiles = async () => {
-    const pendingFiles = files.filter((f) => f.status === 'pending');
-    for (let i = 0; i < files.length; i++) {
-      if (files[i].status === 'pending') {
-        await uploadFile(files[i], i);
-      }
+    const CONCURRENCY = 3;
+    const pendingIndices = files
+      .map((f, i) => (f.status === 'pending' ? i : -1))
+      .filter((i) => i !== -1);
+
+    // Process in batches of CONCURRENCY
+    for (let batch = 0; batch < pendingIndices.length; batch += CONCURRENCY) {
+      const batchIndices = pendingIndices.slice(batch, batch + CONCURRENCY);
+      await Promise.all(
+        batchIndices.map((i) => uploadFile(files[i], i))
+      );
     }
 
     queryClient.invalidateQueries({ queryKey: ['bucket-files', bucketId] });
@@ -287,6 +293,17 @@ export function UploadModal({ bucketId, onClose, onSuccess }: UploadModalProps) 
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Upload Summary */}
+        {hasFiles && (
+          <div className="flex items-center gap-4 text-xs text-[#c4bbd3]/70">
+            <span>{files.filter((f) => f.status === 'success').length}/{files.length} completed</span>
+            {files.some((f) => f.status === 'error') && (
+              <span className="text-red-400">{files.filter((f) => f.status === 'error').length} failed</span>
+            )}
+            <span>{formatBytes(files.reduce((acc, f) => acc + f.file.size, 0))} total</span>
           </div>
         )}
 

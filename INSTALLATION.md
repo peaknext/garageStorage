@@ -1,6 +1,6 @@
 # Installation Guide
 
-Complete installation guide for the Garage Storage Service.
+Complete installation guide for the SKH Storage Service.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ Complete installation guide for the Garage Storage Service.
 | npm | 10.x+ | Package management |
 | Docker | 24.x+ | Container runtime |
 | Docker Compose | 2.x+ | Multi-container orchestration |
-| PostgreSQL | 16.x | Database (local installation) |
+| PostgreSQL | 16.x | Database (provided via Docker) |
 | Git | 2.x+ | Version control |
 
 ### System Requirements
@@ -113,13 +113,13 @@ Edit `backend/.env`:
 
 ```env
 # Database (update password if different)
-DATABASE_URL=postgresql://postgres:your_password@localhost:5432/garageStorage
+DATABASE_URL=postgresql://postgres:your_password@localhost:9006/garageStorage
 
 # Redis
-REDIS_URL=redis://:your_secure_redis_password@localhost:6379
+REDIS_URL=redis://:your_secure_redis_password@localhost:9005
 
 # Garage S3 (will be updated after Step 5)
-GARAGE_ENDPOINT=http://localhost:3900
+GARAGE_ENDPOINT=http://localhost:9004
 GARAGE_REGION=garage
 GARAGE_ACCESS_KEY=
 GARAGE_SECRET_KEY=
@@ -129,7 +129,7 @@ JWT_SECRET=your_jwt_secret_key_at_least_32_characters_long
 JWT_EXPIRES_IN=7d
 
 # App
-PORT=4001
+PORT=9001
 NODE_ENV=development
 ```
 
@@ -137,17 +137,34 @@ NODE_ENV=development
 
 ## Step 3: Setup PostgreSQL Database
 
-### 3.1 Create Database
+PostgreSQL runs as a Docker container — no manual database creation is required. The container automatically creates the `garageStorage` database on first start.
 
-Connect to PostgreSQL and create the database:
+### 3.1 Start Docker Services
+
+From the project root directory:
 
 ```bash
-psql -U postgres
+docker compose up -d
 ```
 
-```sql
-CREATE DATABASE "garageStorage";
-\q
+This starts:
+- **PostgreSQL** on port 9006
+- **Garage** (S3-compatible storage) on ports 9004, 3901, 3902, 3903
+- **Garage WebUI** on port 9003
+- **Redis** on port 9005
+- **Storage API** on port 9001
+- **Admin UI** on port 9002
+
+Verify all services are running:
+
+```bash
+docker compose ps
+```
+
+Wait for all services to be healthy (especially Garage):
+
+```bash
+docker logs garage-storage -f
 ```
 
 ### 3.2 Install Backend Dependencies
@@ -181,46 +198,16 @@ This creates the default admin user:
 
 ---
 
-## Step 4: Start Docker Services
+## Step 4: Initialize SKH Storage
 
-From the project root directory:
-
-```bash
-cd ..
-docker compose up -d
-```
-
-This starts:
-- **Garage** (S3-compatible storage) on ports 3900, 3901, 3902, 3903
-- **Garage WebUI** on port 3909
-- **Redis** on port 6379
-- **Storage API** on port 4001
-- **Admin UI** on port 4000
-
-Verify all services are running:
-
-```bash
-docker compose ps
-```
-
-Wait for all services to be healthy (especially Garage):
-
-```bash
-docker logs garage-storage -f
-```
-
----
-
-## Step 5: Initialize Garage Storage
-
-### 5.1 Run Setup Script (Linux/macOS)
+### 4.1 Run Setup Script (Linux/macOS)
 
 ```bash
 chmod +x scripts/setup-garage.sh
 ./scripts/setup-garage.sh
 ```
 
-### 5.2 Manual Setup (Windows or if script fails)
+### 4.2 Manual Setup (Windows or if script fails)
 
 ```powershell
 # Wait for Garage to be healthy
@@ -245,7 +232,7 @@ docker exec garage-storage /garage key create storage-api-key
 docker exec garage-storage /garage bucket allow --read --write --owner storage-service --key storage-api-key
 ```
 
-### 5.3 Get API Credentials
+### 4.3 Get API Credentials
 
 ```bash
 docker exec garage-storage /garage key info storage-api-key
@@ -253,7 +240,7 @@ docker exec garage-storage /garage key info storage-api-key
 
 Copy the **Key ID** and **Secret key** values.
 
-### 5.4 Update Environment Files
+### 4.4 Update Environment Files
 
 Update both `.env` (root) and `backend/.env` with the Garage credentials:
 
@@ -264,7 +251,7 @@ GARAGE_SECRET_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 ---
 
-## Step 6: Restart Services
+## Step 5: Restart Services
 
 After updating credentials:
 
@@ -274,9 +261,9 @@ docker compose restart storage-api
 
 ---
 
-## Step 7: Verify Installation
+## Step 6: Verify Installation
 
-### 7.1 Check All Services
+### 6.1 Check All Services
 
 ```bash
 docker compose ps
@@ -284,26 +271,26 @@ docker compose ps
 
 All services should show "Up" and "healthy" status.
 
-### 7.2 Access the Applications
+### 6.2 Access the Applications
 
 | Service | URL | Description |
 |---------|-----|-------------|
-| Admin Dashboard | http://localhost:4000 | Main admin interface |
-| Storage API | http://localhost:4001 | Backend REST API |
-| Swagger Docs | http://localhost:4001/api/docs | API documentation |
-| Garage WebUI | http://localhost:3909 | Garage management UI |
+| Admin Dashboard | http://localhost:9002 | Main admin interface |
+| Storage API | http://localhost:9001 | Backend REST API |
+| Swagger Docs | http://localhost:9001/api/docs | API documentation |
+| Garage WebUI | http://localhost:9003 | Garage management UI |
 
-### 7.3 Login to Admin Dashboard
+### 6.3 Login to Admin Dashboard
 
-1. Open http://localhost:4000
+1. Open http://localhost:9002
 2. Login with:
    - **Email**: `admin@example.com`
    - **Password**: `admin123`
 
-### 7.4 Test API Health
+### 6.4 Test API Health
 
 ```bash
-curl http://localhost:4001/api/v1/health
+curl http://localhost:9001/api/v1/health
 ```
 
 ---
@@ -328,10 +315,10 @@ npm install
 npm run dev
 ```
 
-Note: You still need Docker running for Garage and Redis:
+Note: You still need Docker running for Garage, Redis, and PostgreSQL:
 
 ```bash
-docker compose up -d garage redis
+docker compose up -d garage redis postgres
 ```
 
 ---
@@ -340,15 +327,15 @@ docker compose up -d garage redis
 
 | Service | Port | Protocol |
 |---------|------|----------|
-| Admin UI | 4000 | HTTP |
-| Storage API | 4001 | HTTP |
-| Garage S3 API | 3900 | HTTP |
+| Admin UI | 9002 | HTTP |
+| Storage API | 9001 | HTTP |
+| Garage S3 API | 9004 | HTTP |
 | Garage RPC | 3901 | TCP |
 | Garage Web | 3902 | HTTP |
 | Garage Admin | 3903 | HTTP |
-| Garage WebUI | 3909 | HTTP |
-| Redis | 6379 | TCP |
-| PostgreSQL | 5432 | TCP |
+| Garage WebUI | 9003 | HTTP |
+| Redis | 9005 | TCP |
+| PostgreSQL | 9006 | TCP |
 
 ---
 
@@ -384,12 +371,12 @@ Common issues:
 Ensure `GARAGE_PUBLIC_ENDPOINT` in docker-compose.yml matches the URL browsers use:
 
 ```yaml
-GARAGE_PUBLIC_ENDPOINT=http://localhost:3900
+GARAGE_PUBLIC_ENDPOINT=http://localhost:9004
 ```
 
 ### Frontend Can't Connect to API
 
-1. Check API is running: `curl http://localhost:4001/api/v1/health`
+1. Check API is running: `curl http://localhost:9001/api/v1/health`
 2. Verify `NEXT_PUBLIC_API_URL` in docker-compose.yml
 3. Check browser console for CORS errors
 
@@ -460,9 +447,6 @@ To completely remove the installation:
 # Stop and remove containers
 docker compose down
 
-# Remove volumes (WARNING: deletes all stored files)
+# Remove volumes (WARNING: deletes all stored files and the PostgreSQL database)
 docker compose down -v
-
-# Remove database
-psql -U postgres -c 'DROP DATABASE "garageStorage";'
 ```

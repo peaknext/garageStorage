@@ -17,6 +17,8 @@ import { MoveFileDto } from './dto/move-file.dto';
 import { SearchFilesDto } from './dto/search-files.dto';
 import { v4 as uuidv4 } from 'uuid';
 import * as crypto from 'crypto';
+import * as archiver from 'archiver';
+import { Response } from 'express';
 import { Inject, forwardRef } from '@nestjs/common';
 import { ProcessingService } from '../processing/processing.service';
 
@@ -502,22 +504,88 @@ export class FilesService {
     appId: string,
     bucketId: string,
     fileId: string,
-    dto: { metadata?: Record<string, any>; isPublic?: boolean },
+    dto: { originalName?: string; metadata?: Record<string, any>; isPublic?: boolean },
   ) {
     const file = await this.getFileWithBucket(bucketId, fileId);
 
+    const data: any = {};
+    if (dto.originalName !== undefined) data.originalName = dto.originalName;
+    if (dto.metadata !== undefined) data.metadata = dto.metadata;
+    if (dto.isPublic !== undefined) data.isPublic = dto.isPublic;
+
     const updated = await this.prisma.file.update({
       where: { id: fileId },
-      data: {
-        metadata: dto.metadata,
-        isPublic: dto.isPublic,
-      },
+      data,
     });
+
+    if (dto.originalName) {
+      this.eventEmitter.emit('audit.log', {
+        actorType: 'ADMIN_USER',
+        action: 'FILE_RENAMED',
+        resourceType: 'FILE',
+        resourceId: fileId,
+        resourceName: dto.originalName,
+        previousValue: { originalName: file.originalName },
+        newValue: { originalName: dto.originalName },
+      });
+    }
 
     return {
       id: updated.id,
+      originalName: updated.originalName,
       updatedAt: updated.updatedAt,
     };
+  }
+
+  async streamZipDownload(
+    appId: string,
+    bucketId: string,
+    fileIds: string[],
+    res: Response,
+  ) {
+    if (!fileIds.length) {
+      throw new BadRequestException('No files specified');
+    }
+
+    if (fileIds.length > 100) {
+      throw new BadRequestException('Maximum 100 files per ZIP download');
+    }
+
+    const bucket = await this.prisma.bucket.findFirst({
+      where: { id: bucketId, applicationId: appId },
+    });
+
+    if (!bucket) {
+      throw new NotFoundException('Bucket not found');
+    }
+
+    const files = await this.prisma.file.findMany({
+      where: { id: { in: fileIds }, bucketId, deletedAt: null },
+    });
+
+    if (!files.length) {
+      throw new NotFoundException('No files found');
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const zipFilename = `${bucket.name}-${timestamp}.zip`;
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
+
+    const archive = archiver('zip', { zlib: { level: 5 } });
+    archive.pipe(res);
+
+    for (const file of files) {
+      try {
+        const buffer = await this.s3.downloadFile(bucket.garageBucketId, file.key);
+        archive.append(buffer, { name: file.originalName || file.key });
+      } catch (error) {
+        this.logger.error(`Failed to add file ${file.id} to ZIP: ${(error as Error).message}`);
+      }
+    }
+
+    await archive.finalize();
   }
 
   // Private helper methods
@@ -674,6 +742,187 @@ export class FilesService {
       createdAt: file.createdAt,
       updatedAt: file.updatedAt,
       url,
+    };
+  }
+
+  async listVersions(appId: string, bucketId: string, fileId: string) {
+    const file = await this.getFileWithBucket(bucketId, fileId);
+
+    const versions = await this.prisma.fileVersion.findMany({
+      where: { fileId },
+      orderBy: { versionNumber: 'desc' },
+    });
+
+    return {
+      fileId,
+      currentKey: file.key,
+      versions: versions.map((v) => ({
+        id: v.id,
+        versionNumber: v.versionNumber,
+        sizeBytes: Number(v.sizeBytes),
+        checksum: v.checksum,
+        uploadedBy: v.uploadedBy,
+        createdAt: v.createdAt,
+      })),
+    };
+  }
+
+  async restoreVersion(
+    appId: string,
+    bucketId: string,
+    fileId: string,
+    versionId: string,
+  ) {
+    const file = await this.getFileWithBucket(bucketId, fileId);
+
+    if (!file.bucket.versioningEnabled) {
+      throw new BadRequestException('Versioning is not enabled for this bucket');
+    }
+
+    const version = await this.prisma.fileVersion.findFirst({
+      where: { id: versionId, fileId },
+    });
+
+    if (!version) {
+      throw new NotFoundException('Version not found');
+    }
+
+    // Copy the version's S3 object to the current file key
+    await this.s3.copyFile(
+      file.bucket.garageBucketId,
+      version.key,
+      file.bucket.garageBucketId,
+      file.key,
+    );
+
+    // Save current as new version before restoring
+    const latestVersion = await this.prisma.fileVersion.findFirst({
+      where: { fileId },
+      orderBy: { versionNumber: 'desc' },
+    });
+    const nextVersionNumber = (latestVersion?.versionNumber || 0) + 1;
+
+    await this.prisma.fileVersion.create({
+      data: {
+        fileId,
+        versionNumber: nextVersionNumber,
+        key: file.key,
+        sizeBytes: file.sizeBytes,
+        checksum: file.checksum,
+        etag: file.etag,
+      },
+    });
+
+    // Update file record with version's data
+    await this.prisma.file.update({
+      where: { id: fileId },
+      data: {
+        sizeBytes: version.sizeBytes,
+        checksum: version.checksum,
+        etag: version.etag,
+      },
+    });
+
+    this.eventEmitter.emit('audit.log', {
+      actorType: 'ADMIN_USER',
+      action: 'FILE_VERSION_RESTORED',
+      resourceType: 'FILE',
+      resourceId: fileId,
+      metadata: { versionId, versionNumber: version.versionNumber },
+    });
+
+    return { restored: true, versionNumber: version.versionNumber };
+  }
+
+  async deleteVersion(
+    appId: string,
+    bucketId: string,
+    fileId: string,
+    versionId: string,
+  ) {
+    const file = await this.getFileWithBucket(bucketId, fileId);
+
+    const version = await this.prisma.fileVersion.findFirst({
+      where: { id: versionId, fileId },
+    });
+
+    if (!version) {
+      throw new NotFoundException('Version not found');
+    }
+
+    // Delete from S3 if it has a different key than the current file
+    if (version.key !== file.key) {
+      try {
+        await this.s3.deleteFile(file.bucket.garageBucketId, version.key);
+      } catch (error) {
+        this.logger.warn(`Failed to delete version S3 object: ${(error as Error).message}`);
+      }
+    }
+
+    await this.prisma.fileVersion.delete({ where: { id: versionId } });
+  }
+
+  async scanDuplicates(appId: string, bucketId: string) {
+    const bucket = await this.prisma.bucket.findFirst({
+      where: { id: bucketId, applicationId: appId },
+    });
+
+    if (!bucket) {
+      throw new NotFoundException('Bucket not found');
+    }
+
+    // Find files with duplicate checksums within this bucket
+    const duplicates = await this.prisma.$queryRaw<
+      Array<{ checksum: string; count: bigint; total_size: bigint }>
+    >`
+      SELECT checksum, COUNT(*) as count, SUM(size_bytes) as total_size
+      FROM files
+      WHERE bucket_id = ${bucketId}
+        AND deleted_at IS NULL
+        AND checksum IS NOT NULL
+      GROUP BY checksum
+      HAVING COUNT(*) > 1
+      ORDER BY SUM(size_bytes) DESC
+    `;
+
+    const groups = await Promise.all(
+      duplicates.map(async (dup) => {
+        const files = await this.prisma.file.findMany({
+          where: {
+            bucketId,
+            checksum: dup.checksum,
+            deletedAt: null,
+          },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            key: true,
+            originalName: true,
+            sizeBytes: true,
+            createdAt: true,
+          },
+        });
+
+        return {
+          checksum: dup.checksum,
+          count: Number(dup.count),
+          totalSize: Number(dup.total_size),
+          wastedSize: Number(dup.total_size) - Number(files[0]?.sizeBytes || 0),
+          files: files.map((f) => ({
+            ...f,
+            sizeBytes: Number(f.sizeBytes),
+          })),
+        };
+      }),
+    );
+
+    const totalWasted = groups.reduce((acc, g) => acc + g.wastedSize, 0);
+
+    return {
+      duplicateGroups: groups.length,
+      totalDuplicateFiles: groups.reduce((acc, g) => acc + g.count, 0),
+      totalWastedBytes: totalWasted,
+      groups,
     };
   }
 

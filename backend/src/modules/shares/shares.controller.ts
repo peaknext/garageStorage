@@ -12,11 +12,12 @@ import {
   Res,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { ApiTags, ApiOperation, ApiSecurity, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiSecurity, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { SharesService } from './shares.service';
 import { CreateShareDto } from './dto/create-share.dto';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
 import { Public } from '../../common/decorators/public.decorator';
+import { ShareResponseDto } from '../../common/dto/response.dto';
 
 @ApiTags('shares')
 @Controller()
@@ -28,6 +29,7 @@ export class SharesController {
   @UseGuards(ApiKeyGuard)
   @ApiSecurity('api-key')
   @ApiOperation({ summary: 'Create shareable link' })
+  @ApiResponse({ status: 201, description: 'Share link created', type: ShareResponseDto })
   async createShare(
     @Param('fileId') fileId: string,
     @Body() dto: CreateShareDto,
@@ -39,6 +41,7 @@ export class SharesController {
   @UseGuards(ApiKeyGuard)
   @ApiSecurity('api-key')
   @ApiOperation({ summary: 'List shares for a file' })
+  @ApiResponse({ status: 200, description: 'List of share links', type: [ShareResponseDto] })
   async listShares(@Param('fileId') fileId: string) {
     return this.sharesService.listShares(fileId);
   }

@@ -1,10 +1,10 @@
-# Garage Storage Service - API Integration Guide
+# SKH Storage Service - API Integration Guide
 
 > **Version**: 1.0
-> **Base URL**: `http://localhost:4001/api/v1`
-> **Swagger Docs**: `http://localhost:4001/api/docs`
+> **Base URL**: `http://localhost:9001/api/v1`
+> **Swagger Docs**: `http://localhost:9001/api/docs`
 
-This guide provides everything external application development teams need to integrate with the Garage Storage Service.
+This guide provides everything external application development teams need to integrate with the SKH Storage Service.
 
 ---
 
@@ -35,7 +35,7 @@ Contact the storage service administrator to create an application and receive y
 ### 2. Make Your First Request
 
 ```bash
-curl -X GET http://localhost:4001/api/v1/buckets \
+curl -X GET http://localhost:9001/api/v1/buckets \
   -H "X-API-Key: your_api_key_here"
 ```
 
@@ -43,13 +43,13 @@ curl -X GET http://localhost:4001/api/v1/buckets \
 
 ```bash
 # Create bucket
-curl -X POST http://localhost:4001/api/v1/buckets \
+curl -X POST http://localhost:9001/api/v1/buckets \
   -H "X-API-Key: your_api_key" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-bucket"}'
 
 # Upload file (< 10MB)
-curl -X POST http://localhost:4001/api/v1/buckets/{bucketId}/files/upload \
+curl -X POST http://localhost:9001/api/v1/buckets/{bucketId}/files/upload \
   -H "X-API-Key: your_api_key" \
   -F "file=@document.pdf"
 ```
@@ -68,7 +68,7 @@ All external API requests require API key authentication via the `X-API-Key` hea
 
 ```http
 GET /api/v1/buckets HTTP/1.1
-Host: localhost:4001
+Host: localhost:9001
 X-API-Key: sk_live_abc123def456...
 ```
 
@@ -391,7 +391,7 @@ Content-Type: application/json
 **Response:**
 ```json
 {
-  "uploadUrl": "https://garage:3900/bucket/key?X-Amz-Algorithm=AWS4-HMAC-SHA256&...",
+  "uploadUrl": "http://localhost:9004/bucket/key?X-Amz-Algorithm=AWS4-HMAC-SHA256&...",
   "uploadId": "550e8400-e29b-41d4-a716-446655440000",
   "key": "2024/01/01/uuid.pdf",
   "expiresAt": "2024-01-01T01:00:00.000Z",
@@ -409,7 +409,7 @@ Upload your file directly to the returned `uploadUrl`:
 curl -X PUT \
   -H "Content-Type: application/pdf" \
   --data-binary @document.pdf \
-  "https://garage:3900/bucket/key?X-Amz-Algorithm=..."
+  "http://localhost:9004/bucket/key?X-Amz-Algorithm=..."
 ```
 
 #### Step 3: Confirm Upload
@@ -443,7 +443,7 @@ GET /buckets/{bucketId}/files/{fileId}/download?expiresIn=3600
 **Response:**
 ```json
 {
-  "url": "https://garage:3900/bucket/key?X-Amz-Algorithm=AWS4-HMAC-SHA256&...",
+  "url": "http://localhost:9004/bucket/key?X-Amz-Algorithm=AWS4-HMAC-SHA256&...",
   "expiresAt": "2024-01-01T01:00:00.000Z"
 }
 ```
@@ -1027,7 +1027,7 @@ Content-Type: application/json
 {
   "id": "share-uuid",
   "token": "uuid-token",
-  "shareUrl": "http://localhost:4001/api/v1/shares/uuid-token/download",
+  "shareUrl": "http://localhost:9001/api/v1/shares/uuid-token/download",
   "expiresAt": "2024-01-02T00:00:00.000Z",
   "maxDownloads": 10,
   "createdAt": "2024-01-01T00:00:00.000Z"
@@ -1255,7 +1255,7 @@ import axios from 'axios';
 import FormData from 'form-data';
 import fs from 'fs';
 
-const API_BASE = 'http://localhost:4001/api/v1';
+const API_BASE = 'http://localhost:9001/api/v1';
 const API_KEY = 'your_api_key';
 
 const client = axios.create({
@@ -1336,7 +1336,7 @@ async function listFiles(bucketId: string, options = {}) {
 import requests
 import os
 
-API_BASE = 'http://localhost:4001/api/v1'
+API_BASE = 'http://localhost:9001/api/v1'
 API_KEY = 'your_api_key'
 
 headers = {'X-API-Key': API_KEY}
@@ -1411,7 +1411,7 @@ def list_files(bucket_id: str, **kwargs):
 ```bash
 # Set variables
 API_KEY="your_api_key"
-BASE_URL="http://localhost:4001/api/v1"
+BASE_URL="http://localhost:9001/api/v1"
 
 # Create bucket
 curl -X POST "$BASE_URL/buckets" \
@@ -1453,7 +1453,7 @@ curl -X DELETE "$BASE_URL/buckets/{bucketId}/files/{fileId}" \
 
 ## Support
 
-- **API Documentation**: `http://localhost:4001/api/docs`
-- **Admin Dashboard**: `http://localhost:4000`
+- **API Documentation**: `http://localhost:9001/api/docs`
+- **Admin Dashboard**: `http://localhost:9002`
 
 For issues or feature requests, contact your storage service administrator.

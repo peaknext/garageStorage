@@ -2,10 +2,12 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Body,
   Param,
   Query,
+  Res,
   UseGuards,
   UseInterceptors,
   UploadedFile,
@@ -13,6 +15,7 @@ import {
   HttpStatus,
   NotFoundException,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
@@ -178,6 +181,22 @@ export class AdminFilesController {
     );
   }
 
+  @Patch(':fileId')
+  @ApiOperation({ summary: 'Update file metadata (rename, etc.)' })
+  async updateFile(
+    @Param('bucketId') bucketId: string,
+    @Param('fileId') fileId: string,
+    @Body() dto: { originalName?: string; metadata?: Record<string, string>; isPublic?: boolean },
+  ) {
+    const bucket = await this.getBucketWithApp(bucketId);
+    return this.filesService.updateFile(
+      bucket.applicationId,
+      bucketId,
+      fileId,
+      dto,
+    );
+  }
+
   @Delete(':fileId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete file (soft delete by default, use ?permanent=true for hard delete)' })
@@ -211,5 +230,71 @@ export class AdminFilesController {
   @ApiOperation({ summary: 'Sync files from Garage S3 to database (Admin)' })
   async syncFilesFromGarage(@Param('bucketId') bucketId: string) {
     return this.filesService.syncFilesFromGarage(bucketId);
+  }
+
+  @Post('scan-duplicates')
+  @ApiOperation({ summary: 'Scan for duplicate files by checksum (Admin)' })
+  async scanDuplicates(@Param('bucketId') bucketId: string) {
+    const bucket = await this.getBucketWithApp(bucketId);
+    return this.filesService.scanDuplicates(bucket.applicationId, bucketId);
+  }
+
+  @Post('download-zip')
+  @ApiOperation({ summary: 'Download multiple files as ZIP archive (Admin)' })
+  async downloadZip(
+    @Param('bucketId') bucketId: string,
+    @Body() dto: { fileIds: string[] },
+    @Res() res: Response,
+  ) {
+    const bucket = await this.getBucketWithApp(bucketId);
+    await this.filesService.streamZipDownload(
+      bucket.applicationId,
+      bucketId,
+      dto.fileIds,
+      res,
+    );
+  }
+
+  @Get(':fileId/versions')
+  @ApiOperation({ summary: 'List file versions (Admin)' })
+  async listVersions(
+    @Param('bucketId') bucketId: string,
+    @Param('fileId') fileId: string,
+  ) {
+    const bucket = await this.getBucketWithApp(bucketId);
+    return this.filesService.listVersions(bucket.applicationId, bucketId, fileId);
+  }
+
+  @Post(':fileId/versions/:versionId/restore')
+  @ApiOperation({ summary: 'Restore a file version (Admin)' })
+  async restoreVersion(
+    @Param('bucketId') bucketId: string,
+    @Param('fileId') fileId: string,
+    @Param('versionId') versionId: string,
+  ) {
+    const bucket = await this.getBucketWithApp(bucketId);
+    return this.filesService.restoreVersion(
+      bucket.applicationId,
+      bucketId,
+      fileId,
+      versionId,
+    );
+  }
+
+  @Delete(':fileId/versions/:versionId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete a file version (Admin)' })
+  async deleteVersion(
+    @Param('bucketId') bucketId: string,
+    @Param('fileId') fileId: string,
+    @Param('versionId') versionId: string,
+  ) {
+    const bucket = await this.getBucketWithApp(bucketId);
+    await this.filesService.deleteVersion(
+      bucket.applicationId,
+      bucketId,
+      fileId,
+      versionId,
+    );
   }
 }

@@ -124,7 +124,7 @@ export default function BucketDetailPage() {
   const [debouncedFilters, setDebouncedFilters] =
     useState<FileFilters>(defaultFilters);
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"files" | "recycle-bin">("files");
+  const [activeTab, setActiveTab] = useState<"files" | "recycle-bin" | "settings">("files");
   const [selectedDeletedFiles, setSelectedDeletedFiles] = useState<Set<string>>(
     new Set()
   );
@@ -790,6 +790,17 @@ export default function BucketDetailPage() {
                     </span>
                   ) : null}
                 </button>
+                <button
+                  onClick={() => setActiveTab("settings")}
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                    activeTab === "settings"
+                      ? "bg-[#6b21ef] text-white"
+                      : "text-[#c4bbd3] hover:text-white"
+                  }`}
+                >
+                  <Globe className="h-4 w-4 inline mr-2" />
+                  Settings
+                </button>
               </div>
               {activeTab === "files" && (
                 <div className="flex gap-3">
@@ -848,7 +859,7 @@ export default function BucketDetailPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {activeTab === "files" ? (
+          {activeTab === "files" && (
             <div className="flex">
               {/* Folder Browser Sidebar */}
               <div className="w-64 border-r border-white/[0.08] flex-shrink-0">
@@ -877,7 +888,8 @@ export default function BucketDetailPage() {
                 />
               </div>
             </div>
-          ) : (
+          )}
+          {activeTab === "recycle-bin" && (
             <div className="p-6">
               {/* Recycle Bin Stats */}
               <div className="grid grid-cols-3 gap-4 mb-6">
@@ -1091,6 +1103,9 @@ export default function BucketDetailPage() {
                 </table>
               </div>
             </div>
+          )}
+          {activeTab === "settings" && (
+            <BucketSettingsTab bucket={bucket} />
           )}
         </CardContent>
       </Card>
@@ -1315,6 +1330,132 @@ export default function BucketDetailPage() {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function BucketSettingsTab({ bucket }: { bucket: Bucket }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [corsOrigins, setCorsOrigins] = useState(
+    (bucket as any).allowedOrigins?.join("\n") || ""
+  );
+  const [corsEnabled, setCorsEnabled] = useState(bucket.corsEnabled || false);
+  const [lifecycleRules, setLifecycleRules] = useState(
+    JSON.stringify((bucket as any).lifecycleRules || [], null, 2)
+  );
+
+  const updateMutation = useMutation({
+    mutationFn: (data: any) =>
+      apiClient.patch(`/admin/buckets/${bucket.id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bucket", bucket.id] });
+      toast({
+        title: "Settings saved",
+        description: "Bucket settings have been updated.",
+        variant: "success",
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSaveCors = () => {
+    const origins = corsOrigins
+      .split("\n")
+      .map((o: string) => o.trim())
+      .filter(Boolean);
+    updateMutation.mutate({ corsEnabled, allowedOrigins: origins });
+  };
+
+  const handleSaveLifecycle = () => {
+    try {
+      const rules = JSON.parse(lifecycleRules);
+      updateMutation.mutate({ lifecycleRules: rules });
+    } catch {
+      toast({
+        title: "Invalid JSON",
+        description: "Lifecycle rules must be valid JSON.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* CORS Settings */}
+      <div className="p-6 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+        <div className="flex items-center gap-3 mb-4">
+          <Globe className="h-5 w-5 text-[#6b21ef]" />
+          <h3 className="text-lg font-semibold text-white">CORS Settings</h3>
+        </div>
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="corsEnabled"
+              checked={corsEnabled}
+              onChange={(e) => setCorsEnabled(e.target.checked)}
+              className="h-4 w-4 rounded border-white/20 bg-white/[0.05] text-[#6b21ef] focus:ring-[#6b21ef]"
+            />
+            <label htmlFor="corsEnabled" className="text-sm text-white">
+              Enable CORS for this bucket
+            </label>
+          </div>
+          {corsEnabled && (
+            <div>
+              <label className="text-sm text-[#c4bbd3] mb-2 block">
+                Allowed Origins (one per line)
+              </label>
+              <textarea
+                value={corsOrigins}
+                onChange={(e) => setCorsOrigins(e.target.value)}
+                placeholder={"https://example.com\nhttps://app.example.com"}
+                rows={4}
+                className="w-full px-4 py-3 rounded-xl border border-white/[0.1] bg-white/[0.03] text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#6b21ef]/50 font-mono text-sm"
+              />
+            </div>
+          )}
+          <Button
+            onClick={handleSaveCors}
+            disabled={updateMutation.isPending}
+            size="sm"
+          >
+            Save CORS Settings
+          </Button>
+        </div>
+      </div>
+
+      {/* Lifecycle Rules */}
+      <div className="p-6 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+        <div className="flex items-center gap-3 mb-4">
+          <Clock className="h-5 w-5 text-[#ee4f27]" />
+          <h3 className="text-lg font-semibold text-white">Lifecycle Rules</h3>
+        </div>
+        <p className="text-sm text-[#c4bbd3] mb-4">
+          Define automatic actions for files in this bucket (JSON format).
+        </p>
+        <textarea
+          value={lifecycleRules}
+          onChange={(e) => setLifecycleRules(e.target.value)}
+          rows={8}
+          className="w-full px-4 py-3 rounded-xl border border-white/[0.1] bg-white/[0.03] text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#6b21ef]/50 font-mono text-sm"
+          placeholder={'[\n  {\n    "name": "Delete old files",\n    "prefix": "temp/",\n    "action": "delete",\n    "daysAfterCreation": 30\n  }\n]'}
+        />
+        <Button
+          onClick={handleSaveLifecycle}
+          disabled={updateMutation.isPending}
+          size="sm"
+          className="mt-4"
+        >
+          Save Lifecycle Rules
+        </Button>
+      </div>
     </div>
   );
 }

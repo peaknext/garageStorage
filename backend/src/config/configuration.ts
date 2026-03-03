@@ -1,20 +1,35 @@
-export default () => ({
-  port: parseInt(process.env.PORT || '4001', 10),
+export default () => {
+  // Parse Redis URL to extract host/port/password for Bull queue compatibility
+  const redisUrl = process.env.REDIS_URL || 'redis://localhost:9005';
+  let parsedRedisHost = 'localhost';
+  let parsedRedisPort = 9005;
+  let parsedRedisPassword: string | undefined;
+  try {
+    const url = new URL(redisUrl);
+    parsedRedisHost = url.hostname || 'localhost';
+    parsedRedisPort = parseInt(url.port, 10) || 9005;
+    parsedRedisPassword = url.password || undefined;
+  } catch {
+    // fallback to defaults
+  }
+
+  return {
+  port: parseInt(process.env.PORT || '9001', 10),
   database: {
     url: process.env.DATABASE_URL,
   },
   redis: {
-    url: process.env.REDIS_URL || 'redis://localhost:6379',
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379', 10),
-    password: process.env.REDIS_PASSWORD || undefined,
+    url: redisUrl,
+    host: process.env.REDIS_HOST || parsedRedisHost,
+    port: parseInt(process.env.REDIS_PORT || String(parsedRedisPort), 10),
+    password: process.env.REDIS_PASSWORD || parsedRedisPassword,
   },
   garage: {
-    endpoint: process.env.GARAGE_ENDPOINT || 'http://localhost:3900',
+    endpoint: process.env.GARAGE_ENDPOINT || 'http://localhost:9004',
     publicEndpoint:
       process.env.GARAGE_PUBLIC_ENDPOINT ||
       process.env.GARAGE_ENDPOINT ||
-      'http://localhost:3900',
+      'http://localhost:9004',
     adminEndpoint:
       process.env.GARAGE_ADMIN_ENDPOINT || 'http://localhost:3903',
     adminToken: process.env.GARAGE_ADMIN_TOKEN,
@@ -41,7 +56,7 @@ export default () => ({
     secure: process.env.SMTP_SECURE === 'true',
     user: process.env.SMTP_USER || '',
     password: process.env.SMTP_PASSWORD || '',
-    from: process.env.SMTP_FROM || 'noreply@garagestorage.local',
+    from: process.env.SMTP_FROM || 'noreply@skhstorage.local',
   },
   // Processing configuration
   processing: {
@@ -74,4 +89,4 @@ export default () => ({
       10,
     ),
   },
-});
+}; };

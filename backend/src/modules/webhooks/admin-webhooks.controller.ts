@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -95,5 +96,31 @@ export class AdminWebhooksController {
       success: true,
       message: 'Test webhook sent',
     };
+  }
+
+  @Get(':id/deliveries')
+  @ApiOperation({ summary: 'Get webhook delivery logs (Admin)' })
+  async getDeliveries(
+    @Param('appId') appId: string,
+    @Param('id') id: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    await this.verifyApplication(appId);
+    return this.webhooksService.getDeliveries(id, {
+      page: page ? parseInt(page, 10) : 1,
+      limit: limit ? parseInt(limit, 10) : 20,
+    });
+  }
+
+  @Post(':id/deliveries/:deliveryId/retry')
+  @ApiOperation({ summary: 'Retry a failed webhook delivery (Admin)' })
+  async retryDelivery(
+    @Param('appId') appId: string,
+    @Param('id') id: string,
+    @Param('deliveryId') deliveryId: string,
+  ) {
+    await this.verifyApplication(appId);
+    return this.webhooksService.retryDelivery(deliveryId);
   }
 }

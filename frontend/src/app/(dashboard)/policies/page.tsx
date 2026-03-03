@@ -132,6 +132,11 @@ const POLICY_TYPE_INFO: Record<string, { icon: React.ReactNode; color: string; d
     color: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
     description: 'Remove orphan files (DB/S3 mismatch)',
   },
+  PURGE_DELETED: {
+    icon: <Trash2 className="h-5 w-5" />,
+    color: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
+    description: 'Permanently purge soft-deleted files',
+  },
 };
 
 export default function PoliciesPage() {
@@ -148,7 +153,7 @@ export default function PoliciesPage() {
   const [scope, setScope] = useState<'GLOBAL' | 'APPLICATION' | 'BUCKET'>('GLOBAL');
   const [applicationId, setApplicationId] = useState<string>('');
   const [bucketId, setBucketId] = useState<string>('');
-  const [policyType, setPolicyType] = useState<'RETENTION' | 'AUTO_DELETE' | 'SIZE_LIMIT' | 'CLEANUP_TEMP' | 'CLEANUP_ORPHANS'>('RETENTION');
+  const [policyType, setPolicyType] = useState<'RETENTION' | 'AUTO_DELETE' | 'SIZE_LIMIT' | 'CLEANUP_TEMP' | 'CLEANUP_ORPHANS' | 'PURGE_DELETED'>('RETENTION');
   const [deletePolicyId, setDeletePolicyId] = useState<string | null>(null);
   const [retentionDays, setRetentionDays] = useState<string>('30');
   const [deleteAfterDays, setDeleteAfterDays] = useState<string>('90');
@@ -404,6 +409,7 @@ export default function PoliciesPage() {
                       <SelectItem value="SIZE_LIMIT">Size Limit</SelectItem>
                       <SelectItem value="CLEANUP_TEMP">Cleanup Temp</SelectItem>
                       <SelectItem value="CLEANUP_ORPHANS">Cleanup Orphans</SelectItem>
+                      <SelectItem value="PURGE_DELETED">Purge Deleted</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -585,7 +591,11 @@ export default function PoliciesPage() {
           ) : (
             <div className="space-y-3">
               {data?.data.map((policy) => {
-                const typeInfo = POLICY_TYPE_INFO[policy.policyType];
+                const typeInfo = POLICY_TYPE_INFO[policy.policyType] || {
+                  icon: <Shield className="h-5 w-5" />,
+                  color: 'text-gray-400 bg-gray-500/10 border-gray-500/20',
+                  description: 'Unknown policy type',
+                };
                 return (
                   <div
                     key={policy.id}

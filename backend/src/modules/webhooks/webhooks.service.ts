@@ -1,4 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bull';
+import { Queue } from 'bull';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateWebhookDto } from './dto/create-webhook.dto';
 import * as crypto from 'crypto';
@@ -7,7 +9,10 @@ import * as crypto from 'crypto';
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @InjectQueue('webhook') private webhookQueue: Queue,
+  ) {}
 
   async create(appId: string, dto: CreateWebhookDto) {
     const secret = crypto.randomBytes(32).toString('hex');
@@ -97,20 +102,74 @@ export class WebhooksService {
     });
 
     for (const webhook of webhooks) {
-      this.sendWebhook(webhook, event, payload);
+      // Create delivery record and queue for async processing
+      const delivery = await this.prisma.webhookDelivery.create({
+        data: {
+          webhookId: webhook.id,
+          event,
+          payload: { event, timestamp: new Date().toISOString(), data: payload },
+          status: 'PENDING',
+        },
+      });
+
+      await this.webhookQueue.add('deliver', {
+        deliveryId: delivery.id,
+        webhookId: webhook.id,
+        attempt: 1,
+      });
     }
   }
 
-  private async sendWebhook(
-    webhook: { id: string; url: string; secret: string },
-    event: string,
-    payload: any,
-  ) {
-    const body = JSON.stringify({
-      event,
-      timestamp: new Date().toISOString(),
-      data: payload,
+  async getDeliveries(webhookId: string, query: { page?: number; limit?: number }) {
+    const { page = 1, limit = 20 } = query;
+
+    const [deliveries, total] = await Promise.all([
+      this.prisma.webhookDelivery.findMany({
+        where: { webhookId },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.webhookDelivery.count({ where: { webhookId } }),
+    ]);
+
+    return {
+      data: deliveries,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  async retryDelivery(deliveryId: string) {
+    const delivery = await this.prisma.webhookDelivery.findUnique({
+      where: { id: deliveryId },
     });
+
+    if (!delivery) {
+      throw new NotFoundException('Delivery not found');
+    }
+
+    await this.prisma.webhookDelivery.update({
+      where: { id: deliveryId },
+      data: { status: 'RETRYING', attempt: 1 },
+    });
+
+    await this.webhookQueue.add('deliver', {
+      deliveryId: delivery.id,
+      webhookId: delivery.webhookId,
+      attempt: 1,
+    });
+
+    return { message: 'Retry queued' };
+  }
+
+  // Used by the webhook processor
+  async sendWebhook(
+    webhook: { id: string; url: string; secret: string },
+    deliveryId: string,
+    payload: any,
+    event: string,
+  ): Promise<{ success: boolean; statusCode?: number; error?: string }> {
+    const body = JSON.stringify(payload);
 
     const signature = crypto
       .createHmac('sha256', webhook.secret)
@@ -118,6 +177,9 @@ export class WebhooksService {
       .digest('hex');
 
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+
       const response = await fetch(webhook.url, {
         method: 'POST',
         headers: {
@@ -126,30 +188,42 @@ export class WebhooksService {
           'X-Webhook-Event': event,
         },
         body,
+        signal: controller.signal,
       });
+
+      clearTimeout(timeout);
+
+      const responseBody = await response.text().catch(() => '');
 
       if (response.ok) {
         await this.prisma.webhook.update({
           where: { id: webhook.id },
+          data: { lastTriggeredAt: new Date(), failureCount: 0 },
+        });
+
+        await this.prisma.webhookDelivery.update({
+          where: { id: deliveryId },
           data: {
-            lastTriggeredAt: new Date(),
-            failureCount: 0,
+            status: 'SUCCESS',
+            statusCode: response.status,
+            responseBody: responseBody.substring(0, 1000),
           },
         });
+
+        return { success: true, statusCode: response.status };
       } else {
-        throw new Error(`HTTP ${response.status}`);
+        throw new Error(`HTTP ${response.status}: ${responseBody.substring(0, 200)}`);
       }
     } catch (error) {
-      this.logger.error(
-        `Webhook delivery failed for ${webhook.url}: ${(error as Error).message}`,
-      );
+      const errorMessage = (error as Error).message;
+      this.logger.error(`Webhook delivery failed for ${webhook.url}: ${errorMessage}`);
 
       await this.prisma.webhook.update({
         where: { id: webhook.id },
-        data: {
-          failureCount: { increment: 1 },
-        },
+        data: { failureCount: { increment: 1 } },
       });
+
+      return { success: false, error: errorMessage };
     }
   }
 }

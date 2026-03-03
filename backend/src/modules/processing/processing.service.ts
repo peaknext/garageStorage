@@ -184,6 +184,87 @@ export class ProcessingService {
     }
   }
 
+  /**
+   * Queue image optimization (resize + compress)
+   */
+  async optimizeImage(
+    fileId: string,
+    preset: 'web' | 'mobile' | 'original-optimized' | 'custom' = 'web',
+    options?: { width?: number; height?: number; quality?: number; format?: 'webp' | 'jpeg' | 'png' | 'avif' },
+  ) {
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      include: { bucket: true },
+    });
+
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+
+    if (!this.isImageMimeType(file.mimeType)) {
+      return { status: 'error', message: 'File is not an image' };
+    }
+
+    const presets: Record<string, { width: number; format: string; quality: number }> = {
+      web: { width: 1920, format: 'webp', quality: 80 },
+      mobile: { width: 768, format: 'webp', quality: 70 },
+      'original-optimized': { width: 0, format: 'webp', quality: 85 },
+    };
+
+    const config = preset === 'custom' ? options : presets[preset];
+    if (!config) {
+      return { status: 'error', message: `Unknown preset: ${preset}` };
+    }
+
+    const job = await this.thumbnailQueue.add('optimize', {
+      fileId,
+      bucketId: file.bucketId,
+      garageBucketId: file.bucket.garageBucketId,
+      key: file.key,
+      mimeType: file.mimeType,
+      optimization: {
+        width: config.width || undefined,
+        height: (config as any).height || undefined,
+        format: config.format || 'webp',
+        quality: config.quality || 80,
+      },
+    });
+
+    return { status: 'queued', jobId: job.id, preset };
+  }
+
+  /**
+   * Queue image format conversion
+   */
+  async convertImage(
+    fileId: string,
+    targetFormat: 'jpeg' | 'png' | 'webp' | 'avif',
+  ) {
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      include: { bucket: true },
+    });
+
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+
+    if (!this.isImageMimeType(file.mimeType)) {
+      return { status: 'error', message: 'File is not an image' };
+    }
+
+    const job = await this.thumbnailQueue.add('convert', {
+      fileId,
+      bucketId: file.bucketId,
+      garageBucketId: file.bucket.garageBucketId,
+      key: file.key,
+      mimeType: file.mimeType,
+      targetFormat,
+    });
+
+    return { status: 'queued', jobId: job.id, targetFormat };
+  }
+
   private getPreviewType(mimeType: string): string {
     if (mimeType.startsWith('image/')) return 'image';
     if (mimeType === 'application/pdf') return 'pdf';
