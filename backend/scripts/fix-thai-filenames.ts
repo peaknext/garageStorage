@@ -11,7 +11,7 @@
  * Usage: npx ts-node scripts/fix-thai-filenames.ts
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '../src/generated/prisma';
 
 const prisma = new PrismaClient();
 
