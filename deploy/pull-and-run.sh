@@ -181,17 +181,7 @@ EOFCONFIG
 echo "Running database seed..."
 IMAGE_TAG="${TAG}" docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" \
   run --rm --entrypoint sh storage-api -c '
-    # Same override for seed
-    rm -f /app/prisma/prisma.config.ts
-    cat > /app/prisma.config.mjs << "EOFCONFIG"
-import { defineConfig } from "prisma/config";
-export default defineConfig({
-  schema: "./prisma/schema.prisma",
-  datasource: { url: process.env.DATABASE_URL },
-  migrations: { path: "./prisma/migrations" },
-});
-EOFCONFIG
-    npx prisma db seed 2>/dev/null || echo "Seed skipped (not configured or already applied)."
+    node /app/prisma/seed.js
   ' || {
     echo "NOTE: Seed may have already been applied (this is normal on updates)."
   }

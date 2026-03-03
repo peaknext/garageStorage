@@ -1,6 +1,6 @@
-import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
-import 'dotenv/config';
+// Production seed script (plain JS - no ts-node needed)
+const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcrypt');
 
 const prisma = new PrismaClient();
 
@@ -9,7 +9,6 @@ async function main() {
   const password = 'admin123';
   const name = 'Administrator';
 
-  // Check if admin already exists
   const existingAdmin = await prisma.adminUser.findUnique({
     where: { email },
   });
@@ -19,7 +18,6 @@ async function main() {
     return;
   }
 
-  // Create admin user
   const passwordHash = await bcrypt.hash(password, 10);
 
   const admin = await prisma.adminUser.create({
@@ -33,10 +31,8 @@ async function main() {
 
   console.log('Admin user created successfully!');
   console.log('Email:', email);
-  console.log('Password:', password);
   console.log('Role:', admin.role);
 
-  // Create default purge policy for recycle bin
   const existingPurgePolicy = await prisma.storagePolicy.findFirst({
     where: { policyType: 'PURGE_DELETED' },
   });
@@ -45,15 +41,18 @@ async function main() {
     await prisma.storagePolicy.create({
       data: {
         name: 'Auto-purge deleted files',
-        description: 'Automatically permanently delete files that have been in the recycle bin for more than 30 days',
+        description:
+          'Automatically permanently delete files that have been in the recycle bin for more than 30 days',
         scope: 'GLOBAL',
         policyType: 'PURGE_DELETED',
         deleteAfterDays: 30,
-        schedule: '0 0 * * *', // Daily at midnight
+        schedule: '0 0 * * *',
         isActive: true,
       },
     });
-    console.log('Default purge policy created: Auto-purge deleted files (30 days)');
+    console.log(
+      'Default purge policy created: Auto-purge deleted files (30 days)',
+    );
   } else {
     console.log('Purge policy already exists');
   }
