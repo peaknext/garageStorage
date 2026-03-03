@@ -147,6 +147,10 @@ if [ -z "${GARAGE_KEY}" ] || [ "${GARAGE_KEY}" = "CHANGE_ME" ]; then
   }
   echo "Granting bucket creation permission..."
   docker exec skh-garage /garage key allow --create-bucket storage-api-key 2>/dev/null || true
+
+  echo "Creating storage-service bucket (required for health check)..."
+  docker exec skh-garage /garage bucket create storage-service 2>/dev/null || true
+  docker exec skh-garage /garage bucket allow --read --write --owner storage-service --key storage-api-key 2>/dev/null || true
   echo ""
   echo ">>> IMPORTANT: Copy the Access Key and Secret Key above"
   echo ">>> Edit ${ENV_FILE} and set GARAGE_ACCESS_KEY and GARAGE_SECRET_KEY"
@@ -183,6 +187,51 @@ EOFCONFIG
 echo "Running database seed..."
 IMAGE_TAG="${TAG}" docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" \
   run --rm --entrypoint sh storage-api -c '
+    # Override seed.js to use PrismaPg adapter (Prisma 7.x client engine requires it)
+    cat > /app/prisma/seed.js << "EOFSEED"
+const { PrismaClient } = require("@prisma/client");
+const { PrismaPg } = require("@prisma/adapter-pg");
+const { Pool } = require("pg");
+const bcrypt = require("bcrypt");
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
+
+async function main() {
+  const email = "admin@example.com";
+  const password = "admin123";
+  const name = "Administrator";
+
+  const existing = await prisma.adminUser.findUnique({ where: { email } });
+  if (existing) { console.log("Admin user already exists:", email); return; }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const admin = await prisma.adminUser.create({
+    data: { email, passwordHash, name, role: "ADMIN" },
+  });
+  console.log("Admin user created:", admin.email, admin.role);
+
+  const existingPolicy = await prisma.storagePolicy.findFirst({
+    where: { policyType: "PURGE_DELETED" },
+  });
+  if (!existingPolicy) {
+    await prisma.storagePolicy.create({
+      data: {
+        name: "Auto-purge deleted files",
+        description: "Permanently delete files in recycle bin after 30 days",
+        scope: "GLOBAL", policyType: "PURGE_DELETED",
+        deleteAfterDays: 30, schedule: "0 0 * * *", isActive: true,
+      },
+    });
+    console.log("Default purge policy created (30 days)");
+  }
+}
+
+main()
+  .catch((e) => { console.error(e); process.exit(1); })
+  .finally(async () => { await prisma.$disconnect(); await pool.end(); });
+EOFSEED
     node /app/prisma/seed.js
   ' || {
     echo "NOTE: Seed may have already been applied (this is normal on updates)."
@@ -205,7 +254,7 @@ IMAGE_TAG="${TAG}" docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" 
 echo ""
 HTTPS_PORT=$(grep -E '^NGINX_HTTPS_PORT=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "8443")
 HTTP_PORT=$(grep -E '^NGINX_HTTP_PORT=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "8080")
-if curl -sf -k "https://localhost:${HTTPS_PORT}/api/v1/health" > /dev/null 2>&1; then
+if curl -sf -k "https://localhost:${HTTPS_PORT}/health" > /dev/null 2>&1; then
   echo "=== Deployment successful! ==="
   echo ""
   SERVER=$(grep -E '^SERVER_DOMAIN=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' || hostname -f 2>/dev/null || echo 'your-server-ip')

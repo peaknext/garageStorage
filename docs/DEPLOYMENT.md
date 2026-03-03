@@ -1,6 +1,6 @@
 # คู่มือการ Deploy ระบบ SKH Storage Service
 
-> เวอร์ชัน 1.0 | อัปเดตล่าสุด: มีนาคม 2569
+> เวอร์ชัน 1.1 | อัปเดตล่าสุด: มีนาคม 2569
 
 ---
 
@@ -38,7 +38,7 @@ SKH Storage Service เป็นระบบจัดเก็บไฟล์แ
 │        │                                                │
 │        ▼                                                │
 │  ┌────────────────────┐                                 │
-│  │   Nginx (80/443)   │  ← SSL Termination              │
+│  │ Nginx (8080/8443)  │  ← SSL Termination              │
 │  │   Reverse Proxy    │  ← Security Headers              │
 │  │   Rate Limiting    │  ← Gzip Compression              │
 │  └────┬──────────┬────┘                                 │
@@ -60,7 +60,7 @@ SKH Storage Service เป็นระบบจัดเก็บไฟล์แ
 │  └──────────┘  └──────────┘  └──────────────┘          │
 │                                                         │
 │  ──── Internal Only (Docker Network) ────               │
-│  ──── Exposed Ports: 80, 443, 9004     ────             │
+│  ──── Exposed Ports: 8080, 8443, 9004  ────             │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -68,7 +68,7 @@ SKH Storage Service เป็นระบบจัดเก็บไฟล์แ
 
 | Service | Container | Port (Internal) | Port (Exposed) | คำอธิบาย |
 |---------|-----------|----------------|----------------|----------|
-| Nginx | skh-nginx | 80, 443 | 80, 443 | Reverse proxy, SSL termination |
+| Nginx | skh-nginx | 80, 443 | 8080, 8443 | Reverse proxy, SSL termination (port ตั้งค่าได้ผ่าน `NGINX_HTTP_PORT` / `NGINX_HTTPS_PORT`) |
 | Storage API | skh-storage-api | 9001 | - (ผ่าน nginx) | REST API (NestJS) |
 | Admin UI | skh-admin-ui | 3000 | - (ผ่าน nginx) | Dashboard (Next.js) |
 | PostgreSQL | skh-postgres | 5432 | - (internal) | ฐานข้อมูลหลัก |
@@ -79,13 +79,13 @@ SKH Storage Service เป็นระบบจัดเก็บไฟล์แ
 
 ```
 User Upload:
-  Browser → Nginx (443) → Storage API → Garage S3
+  Browser → Nginx (8443) → Storage API → Garage S3
 
 File Download (Presigned URL):
   Browser → Garage S3 (9004) ← presigned URL จาก Storage API
 
 Admin Dashboard:
-  Browser → Nginx (443) → Admin UI (SSR) → Storage API
+  Browser → Nginx (8443) → Admin UI (SSR) → Storage API
 ```
 
 > **หมายเหตุ**: Port 9004 (Garage S3) ต้อง expose เนื่องจาก Presigned URL ที่ backend สร้างขึ้นจะชี้ไปที่ Garage โดยตรง Browser จะดาวน์โหลดไฟล์จาก Garage S3 โดยไม่ผ่าน nginx
@@ -104,7 +104,7 @@ Admin Dashboard:
 | Disk | 50 GB ขั้นต่ำ + พื้นที่สำหรับไฟล์ที่จัดเก็บ |
 | Docker | Docker Engine 24+ |
 | Docker Compose | V2+ (มาพร้อม Docker Engine) |
-| Network | Port 80, 443, 9004 เปิดใช้งาน |
+| Network | Port 8080, 8443, 9004 เปิดใช้งาน (port ตั้งค่าได้ผ่าน `.env.production`) |
 
 **ตรวจสอบเวอร์ชัน:**
 ```bash
@@ -192,18 +192,14 @@ docker run hello-world
 ```bash
 # Ubuntu/Debian (UFW)
 sudo ufw allow 22/tcp     # SSH (สำคัญ! ต้อง allow ก่อน enable)
-sudo ufw allow 80/tcp     # HTTP
-sudo ufw allow 443/tcp    # HTTPS
-sudo ufw allow 8080/tcp   # SKH Storage HTTP (ถ้าใช้ port อื่น)
-sudo ufw allow 8443/tcp   # SKH Storage HTTPS (ถ้าใช้ port อื่น)
+sudo ufw allow 8080/tcp   # SKH Storage HTTP (default, ตั้งค่าได้ผ่าน NGINX_HTTP_PORT)
+sudo ufw allow 8443/tcp   # SKH Storage HTTPS (default, ตั้งค่าได้ผ่าน NGINX_HTTPS_PORT)
 sudo ufw allow 9004/tcp   # Garage S3 (Presigned URLs)
 sudo ufw enable
 sudo ufw status
 
 # CentOS/RHEL (firewalld)
 sudo firewall-cmd --permanent --add-port=22/tcp
-sudo firewall-cmd --permanent --add-port=80/tcp
-sudo firewall-cmd --permanent --add-port=443/tcp
 sudo firewall-cmd --permanent --add-port=8080/tcp
 sudo firewall-cmd --permanent --add-port=8443/tcp
 sudo firewall-cmd --permanent --add-port=9004/tcp
@@ -227,8 +223,8 @@ cd /opt/skh-storage
 
 ```powershell
 # เปิด PowerShell ในฐานะ Administrator
-New-NetFirewallRule -DisplayName "SKH Storage HTTP" -Direction Inbound -Protocol TCP -LocalPort 80 -Action Allow
-New-NetFirewallRule -DisplayName "SKH Storage HTTPS" -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow
+New-NetFirewallRule -DisplayName "SKH Storage HTTP" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow
+New-NetFirewallRule -DisplayName "SKH Storage HTTPS" -Direction Inbound -Protocol TCP -LocalPort 8443 -Action Allow
 New-NetFirewallRule -DisplayName "SKH Storage S3" -Direction Inbound -Protocol TCP -LocalPort 9004 -Action Allow
 ```
 
@@ -315,7 +311,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.production ps
 
 # ผลลัพธ์ที่คาดหวัง:
 # NAME               STATUS          PORTS
-# skh-nginx          Up (healthy)    0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp
+# skh-nginx          Up (healthy)    0.0.0.0:8080->80/tcp, 0.0.0.0:8443->443/tcp
 # skh-storage-api    Up (healthy)
 # skh-admin-ui       Up
 # skh-postgres       Up (healthy)
@@ -323,10 +319,10 @@ docker compose -f docker-compose.prod.yml --env-file .env.production ps
 # skh-garage         Up (healthy)    0.0.0.0:9004->9004/tcp
 
 # ตรวจสอบ health endpoint
-curl -k https://localhost/health
+curl -k https://localhost:8443/health
 
 # ตรวจสอบ admin UI
-curl -k -I https://localhost/
+curl -k -I https://localhost:8443/
 
 # ดู logs
 docker logs skh-storage-api --tail 50
@@ -476,14 +472,18 @@ bash deploy/pull-and-run.sh v1.0.0
 
 | ขั้นตอน | สิ่งที่เกิดขึ้น |
 |---------|---------------|
-| Pre-flight | ตรวจ `.env.production`, `IMAGE_REGISTRY`, SSL cert (auto-gen ถ้าไม่มี) |
+| Pre-flight | ตรวจ `.env.production`, `IMAGE_REGISTRY`, SSL cert (auto-gen ถ้าไม่มี), สร้าง `garage.active.toml` |
 | 1/4 | `docker compose pull storage-api admin-ui` — ดึง image จาก Docker Hub |
 | 2/4 | หยุด services เดิม (ถ้ามี) |
 | 3/4 | เริ่ม infrastructure (postgres, redis, garage) → รอ `pg_isready` → Prisma migration → seed |
 | 4/4 | เริ่ม services ทั้งหมด |
-| Health check | ตรวจ `https://localhost/api/v1/health` |
+| Health check | ตรวจ `https://localhost:${HTTPS_PORT}/health` |
 
-> ครั้งแรก script จะสร้าง Garage API key ให้อัตโนมัติ และรอให้คุณใส่ key ใน `.env.production` ก่อนดำเนินการต่อ
+> **หมายเหตุ Prisma Migration**: ขั้นตอน migration ใน Docker จะลบ `prisma.config.ts` (TypeScript/jiti ไม่ทำงานใน production image) และสร้าง `prisma.config.mjs` ที่ project root (`/app/`) แทน จากนั้นจึงรัน `npx prisma migrate deploy`
+>
+> **หมายเหตุ Seed**: ขั้นตอน seed ใช้ `node /app/prisma/seed.js` (plain JavaScript) ไม่ใช่ `npx prisma db seed` เนื่องจาก production image ไม่มี `ts-node` **สำคัญ:** Prisma 7.x ใช้ client engine ที่ต้องการ `@prisma/adapter-pg` — seed.js ต้องสร้าง PrismaClient ด้วย adapter pattern: `new PrismaClient({ adapter: new PrismaPg(pool) })` (ไม่ใช่ `new PrismaClient()` แบบเดิม)
+>
+> ครั้งแรก script จะสร้าง Garage API key ให้อัตโนมัติ (พร้อม `--create-bucket` permission) และรอให้คุณใส่ key ใน `.env.production` ก่อนดำเนินการต่อ
 
 ### อัปเดต Version
 
@@ -501,13 +501,26 @@ bash deploy/pull-and-run.sh v1.1.0
 IMAGE_TAG=v1.1.0 docker compose -f docker-compose.prod.yml --env-file .env.production pull storage-api admin-ui
 
 # Run migrations (ถ้ามี schema changes)
-IMAGE_TAG=v1.1.0 docker compose -f docker-compose.prod.yml --env-file .env.production run --rm storage-api npx prisma migrate deploy
+# หมายเหตุ: ต้องลบ prisma.config.ts และสร้าง .mjs override เนื่องจาก jiti/TypeScript ไม่ทำงานใน production
+IMAGE_TAG=v1.1.0 docker compose -f docker-compose.prod.yml --env-file .env.production \
+  run --rm --entrypoint sh storage-api -c '
+    rm -f /app/prisma/prisma.config.ts
+    cat > /app/prisma.config.mjs << "EOFCONFIG"
+import { defineConfig } from "prisma/config";
+export default defineConfig({
+  schema: "./prisma/schema.prisma",
+  datasource: { url: process.env.DATABASE_URL },
+  migrations: { path: "./prisma/migrations" },
+});
+EOFCONFIG
+    npx prisma migrate deploy
+  '
 
 # Restart services ด้วย images ใหม่
 IMAGE_TAG=v1.1.0 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 
 # ตรวจสอบ
-docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml --env-file .env.production ps
 docker logs skh-storage-api --tail 20
 ```
 
@@ -524,10 +537,10 @@ bash deploy/pull-and-run.sh v1.0.0
 
 | ขั้นตอน | คำสั่ง | คาดหวัง |
 |---------|--------|---------|
-| Services ทำงาน | `docker compose -f docker-compose.prod.yml ps` | ทุก service status = `Up` หรือ `healthy` |
-| API ตอบ | `curl -k https://localhost/api/v1/health` | `{"status":"ok"}` |
-| Frontend โหลด | เปิด `https://SERVER_DOMAIN` ในเบราว์เซอร์ | หน้า Login |
-| SSL ทำงาน | `curl -I https://SERVER_DOMAIN` | Status 200 + security headers |
+| Services ทำงาน | `docker compose -f docker-compose.prod.yml --env-file .env.production ps` | ทุก service status = `Up` หรือ `healthy` |
+| API ตอบ | `curl -k https://localhost:8443/health` | `{"status":"ok"}` |
+| Frontend โหลด | เปิด `https://SERVER_DOMAIN:8443` ในเบราว์เซอร์ | หน้า Login |
+| SSL ทำงาน | `curl -kI https://SERVER_DOMAIN:8443` | Status 200 + security headers |
 | Logs ปกติ | `docker logs skh-storage-api --tail 20` | ไม่มี error |
 
 ---
@@ -578,17 +591,39 @@ sleep 30
 
 # Initialize Garage
 docker exec skh-garage /garage key create storage-api-key
+docker exec skh-garage /garage key allow --create-bucket storage-api-key
 # Copy access key → GARAGE_ACCESS_KEY ใน .env.production
 # Copy secret key → GARAGE_SECRET_KEY ใน .env.production
 
+# สร้าง storage-service bucket (health check ต้องการ)
+docker exec skh-garage /garage bucket create storage-service
+docker exec skh-garage /garage bucket allow --read --write --owner storage-service --key storage-api-key
+
 # Assign Garage node layout
-NODE_ID=$(docker exec skh-garage /garage status | grep "this node" | awk '{print $3}' | head -c 16)
-docker exec skh-garage /garage layout assign "$NODE_ID" -z dc1 -c 1G
-docker exec skh-garage /garage layout apply --version 1
+NODE_ID=$(docker exec skh-garage /garage status | grep -oP '^[a-f0-9]+' | head -1)
+docker exec skh-garage /garage layout assign -z dc1 -c 1G "$NODE_ID"
+LAYOUT_VER=$(docker exec skh-garage /garage layout show | grep -oP 'apply --version \K[0-9]+' || echo "1")
+docker exec skh-garage /garage layout apply --version "$LAYOUT_VER"
 
 # Run database migrations
-docker compose -f docker-compose.prod.yml --env-file .env.production run --rm storage-api npx prisma migrate deploy
-docker compose -f docker-compose.prod.yml --env-file .env.production run --rm storage-api npx prisma db seed
+# หมายเหตุ: ต้องลบ prisma.config.ts และสร้าง .mjs override เนื่องจาก jiti/TypeScript ไม่ทำงานใน production
+docker compose -f docker-compose.prod.yml --env-file .env.production \
+  run --rm --entrypoint sh storage-api -c '
+    rm -f /app/prisma/prisma.config.ts
+    cat > /app/prisma.config.mjs << "EOFCONFIG"
+import { defineConfig } from "prisma/config";
+export default defineConfig({
+  schema: "./prisma/schema.prisma",
+  datasource: { url: process.env.DATABASE_URL },
+  migrations: { path: "./prisma/migrations" },
+});
+EOFCONFIG
+    npx prisma migrate deploy
+  '
+
+# Run seed (plain JS — ts-node ไม่มีใน production image)
+docker compose -f docker-compose.prod.yml --env-file .env.production \
+  run --rm --entrypoint sh storage-api -c 'node /app/prisma/seed.js'
 
 # Restart เพื่อใช้ Garage keys
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
@@ -763,8 +798,8 @@ ADMIN_UI_URL=https://storage.company.com
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw allow ssh          # SSH (22)
-sudo ufw allow 80/tcp       # HTTP
-sudo ufw allow 443/tcp      # HTTPS
+sudo ufw allow 8080/tcp     # SKH Storage HTTP
+sudo ufw allow 8443/tcp     # SKH Storage HTTPS
 sudo ufw allow 9004/tcp     # Garage S3
 sudo ufw enable
 ```
@@ -833,8 +868,20 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d postg
 # รอ postgres พร้อม
 sleep 15
 
-# 3. Run migrations
-docker compose -f docker-compose.prod.yml --env-file .env.production run --rm storage-api npx prisma migrate deploy
+# 3. Run migrations (ต้องใช้ .mjs config override)
+docker compose -f docker-compose.prod.yml --env-file .env.production \
+  run --rm --entrypoint sh storage-api -c '
+    rm -f /app/prisma/prisma.config.ts
+    cat > /app/prisma.config.mjs << "EOFCONFIG"
+import { defineConfig } from "prisma/config";
+export default defineConfig({
+  schema: "./prisma/schema.prisma",
+  datasource: { url: process.env.DATABASE_URL },
+  migrations: { path: "./prisma/migrations" },
+});
+EOFCONFIG
+    npx prisma migrate deploy
+  '
 
 # 4. Restore data
 cat backup_migration.dump | docker exec -i skh-postgres pg_restore \
@@ -898,8 +945,20 @@ cd /opt/skh-storage
 cd skh-storage-YYYYMMDD_HHMMSS
 for img in images/*.tar.gz; do docker load < "$img"; done
 
-# 3. Run migrations
-docker compose -f docker-compose.prod.yml --env-file .env.production run --rm storage-api npx prisma migrate deploy
+# 3. Run migrations (ต้องใช้ .mjs config override — ดูหมายเหตุ Section 6)
+docker compose -f docker-compose.prod.yml --env-file .env.production \
+  run --rm --entrypoint sh storage-api -c '
+    rm -f /app/prisma/prisma.config.ts
+    cat > /app/prisma.config.mjs << "EOFCONFIG"
+import { defineConfig } from "prisma/config";
+export default defineConfig({
+  schema: "./prisma/schema.prisma",
+  datasource: { url: process.env.DATABASE_URL },
+  migrations: { path: "./prisma/migrations" },
+});
+EOFCONFIG
+    npx prisma migrate deploy
+  '
 
 # 4. Restart services
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
@@ -919,8 +978,20 @@ git pull origin main
 # 3. Rebuild และ restart
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
 
-# 4. Run migrations
-docker compose -f docker-compose.prod.yml --env-file .env.production run --rm storage-api npx prisma migrate deploy
+# 4. Run migrations (ต้องใช้ .mjs config override — ดูหมายเหตุ Section 6)
+docker compose -f docker-compose.prod.yml --env-file .env.production \
+  run --rm --entrypoint sh storage-api -c '
+    rm -f /app/prisma/prisma.config.ts
+    cat > /app/prisma.config.mjs << "EOFCONFIG"
+import { defineConfig } from "prisma/config";
+export default defineConfig({
+  schema: "./prisma/schema.prisma",
+  datasource: { url: process.env.DATABASE_URL },
+  migrations: { path: "./prisma/migrations" },
+});
+EOFCONFIG
+    npx prisma migrate deploy
+  '
 ```
 
 ### 12.2 Rollback
@@ -965,8 +1036,20 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 # 1. Build images ใหม่ (ไม่กระทบ running containers)
 docker compose -f docker-compose.prod.yml --env-file .env.production build
 
-# 2. Run migrations (backward-compatible migrations only)
-docker compose -f docker-compose.prod.yml --env-file .env.production run --rm storage-api npx prisma migrate deploy
+# 2. Run migrations (backward-compatible migrations only, ต้องใช้ .mjs config override)
+docker compose -f docker-compose.prod.yml --env-file .env.production \
+  run --rm --entrypoint sh storage-api -c '
+    rm -f /app/prisma/prisma.config.ts
+    cat > /app/prisma.config.mjs << "EOFCONFIG"
+import { defineConfig } from "prisma/config";
+export default defineConfig({
+  schema: "./prisma/schema.prisma",
+  datasource: { url: process.env.DATABASE_URL },
+  migrations: { path: "./prisma/migrations" },
+});
+EOFCONFIG
+    npx prisma migrate deploy
+  '
 
 # 3. Rolling restart (ทีละ service)
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-deps storage-api
@@ -1043,8 +1126,19 @@ SELECT schemaname, relname, n_live_tup
 FROM pg_stat_user_tables
 ORDER BY n_live_tup DESC;"
 
-# Run migrations
-$COMPOSE run --rm storage-api npx prisma migrate deploy
+# Run migrations (ต้องใช้ .mjs config override — ดูหมายเหตุ Section 6)
+$COMPOSE run --rm --entrypoint sh storage-api -c '
+  rm -f /app/prisma/prisma.config.ts
+  cat > /app/prisma.config.mjs << "EOFCONFIG"
+import { defineConfig } from "prisma/config";
+export default defineConfig({
+  schema: "./prisma/schema.prisma",
+  datasource: { url: process.env.DATABASE_URL },
+  migrations: { path: "./prisma/migrations" },
+});
+EOFCONFIG
+  npx prisma migrate deploy
+'
 
 # Open Prisma Studio (development only)
 $COMPOSE run --rm -p 5555:5555 storage-api npx prisma studio
@@ -1089,8 +1183,8 @@ docker exec skh-redis redis-cli -a "$REDIS_PASSWORD" flushall
 
 ```bash
 # ตรวจสอบ health ของแต่ละ service
-curl -k https://localhost/health                    # API health (ผ่าน nginx)
-curl -s http://localhost/nginx-health               # Nginx health
+curl -k https://localhost:8443/health                # API health (ผ่าน nginx)
+curl -s http://localhost:8080/nginx-health           # Nginx health
 docker exec skh-postgres pg_isready -U postgres     # PostgreSQL
 docker exec skh-redis redis-cli -a "$REDIS_PASSWORD" ping  # Redis
 docker exec skh-garage /garage status               # Garage
@@ -1203,6 +1297,9 @@ docker inspect --format='{{json .State.Health}}' skh-storage-api | python3 -m js
 |-------|--------|-------|
 | storage-api restarts | Database connection failed | ตรวจสอบ DB_PASSWORD ใน .env.production |
 | storage-api restarts | NOAUTH Redis | ตรวจสอบ REDIS_PASSWORD ใน .env.production |
+| storage-api restarts | `exports is not defined in ES module scope` | Container ใช้ image เก่า → `docker stop skh-storage-api && docker rm skh-storage-api && docker compose -f docker-compose.prod.yml --env-file .env.production up -d storage-api` |
+| storage-api unhealthy | Healthcheck fails แต่ app ทำงานปกติ | `node:20-slim` ไม่มี `curl` — ตรวจสอบ Dockerfile ต้องมี `apt-get install -y openssl curl` และ healthcheck ใช้ `curl \|\| node` fallback |
+| storage-api unhealthy | S3 check: `Bucket not found: storage-service` | Health check ต้องการ bucket `storage-service` — สร้างด้วย: `docker exec skh-garage /garage bucket create storage-service && docker exec skh-garage /garage bucket allow --read --write --owner storage-service --key storage-api-key` |
 | nginx won't start | SSL cert not found | รัน `./scripts/ssl-setup.sh` |
 | nginx won't start | Config syntax error | `docker exec skh-nginx nginx -t` |
 | garage unhealthy | Bad config | ตรวจสอบ garage.active.toml |
@@ -1212,21 +1309,28 @@ docker inspect --format='{{json .State.Health}}' skh-storage-api | python3 -m js
 
 ```bash
 # 1. ตรวจสอบ API ทำงาน
-curl -k https://localhost/health
+curl -k https://localhost:8443/health
 
 # 2. ทดสอบ login API
-curl -k -X POST https://localhost/api/v1/auth/login \
+curl -k -X POST https://localhost:8443/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@example.com","password":"admin123"}'
 
 # 3. ตรวจสอบ CORS headers
-curl -k -I -X OPTIONS https://localhost/api/v1/auth/login \
-  -H "Origin: https://your-domain" \
+curl -k -I -X OPTIONS https://localhost:8443/api/v1/auth/login \
+  -H "Origin: https://your-domain:8443" \
   -H "Access-Control-Request-Method: POST"
 
 # 4. ดู API logs
 docker logs skh-storage-api --tail 50
 ```
+
+**สาเหตุที่พบบ่อย:**
+
+| อาการ | สาเหตุ | แก้ไข |
+|-------|--------|-------|
+| Login 401 ทุกครั้ง | ไม่มี admin user ในฐานข้อมูล (seed ไม่ทำงาน) | ตรวจสอบ: `docker exec skh-postgres psql -U postgres -d garageStorage -c "SELECT * FROM admin_users;"` ถ้า 0 rows → รัน seed: `docker compose -f docker-compose.prod.yml --env-file .env.production run --rm --entrypoint sh storage-api -c 'node /app/prisma/seed.js'` |
+| Login redirect loop | JWT_SECRET ไม่ตรงกัน | ตรวจสอบ JWT_SECRET ใน .env.production |
 
 ### 15.3 File Upload/Download ไม่ทำงาน
 
@@ -1246,7 +1350,65 @@ curl http://YOUR_SERVER_IP:9004
 docker logs skh-storage-api | grep -i "presigned\|s3\|garage"
 ```
 
-### 15.4 SSL Certificate Issues
+### 15.4 สร้าง Bucket ไม่ได้ (400 Bad Request)
+
+**อาการ**: สร้าง bucket จาก Admin Dashboard ได้ error 400
+
+```bash
+# ตรวจสอบ Garage key permissions
+docker exec skh-garage /garage key list
+# ดูที่ "Can create buckets" — ถ้าเป็น false:
+docker exec skh-garage /garage key allow --create-bucket storage-api-key
+```
+
+> **หมายเหตุ**: `deploy/pull-and-run.sh` เวอร์ชันใหม่จะตั้งค่า `--create-bucket` ให้อัตโนมัติ
+
+### 15.5 Prisma Migration ล้มเหลวใน Docker
+
+**อาการ**: `npx prisma migrate deploy` ใน Docker container แสดง error เกี่ยวกับ jiti หรือ TypeScript config
+
+**สาเหตุ**: `prisma.config.ts` ใช้ TypeScript ซึ่ง `jiti` (transpiler) อาจไม่ทำงานใน production image
+
+**แก้ไข**: ใช้ `.mjs` config override (ดูคำสั่งใน Section 6 หรือ 7.3)
+
+```bash
+# ตัวอย่างคำสั่ง migration ที่ถูกต้อง
+docker compose -f docker-compose.prod.yml --env-file .env.production \
+  run --rm --entrypoint sh storage-api -c '
+    rm -f /app/prisma/prisma.config.ts
+    cat > /app/prisma.config.mjs << "EOFCONFIG"
+import { defineConfig } from "prisma/config";
+export default defineConfig({
+  schema: "./prisma/schema.prisma",
+  datasource: { url: process.env.DATABASE_URL },
+  migrations: { path: "./prisma/migrations" },
+});
+EOFCONFIG
+    npx prisma migrate deploy
+  '
+```
+
+### 15.6 Seed Script ล้มเหลว (PrismaClient Error)
+
+**อาการ**: `PrismaClientInitializationError: Using engine type "client" requires either "adapter" or "accelerateUrl"`
+
+**สาเหตุ**: Prisma 7.x ใช้ client engine ที่ต้องการ adapter — `new PrismaClient()` แบบเดิมใช้ไม่ได้
+
+**แก้ไข**: อัปเดต seed.js ให้ใช้ `@prisma/adapter-pg`:
+
+```javascript
+const { PrismaClient } = require("@prisma/client");
+const { PrismaPg } = require("@prisma/adapter-pg");
+const { Pool } = require("pg");
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
+```
+
+หรือใช้ `deploy/pull-and-run.sh` ที่จะ override seed.js ให้อัตโนมัติ
+
+### 15.7 SSL Certificate Issues
 
 ```bash
 # ตรวจสอบ certificate
@@ -1256,7 +1418,7 @@ openssl x509 -in nginx/ssl/fullchain.pem -text -noout | head -20
 openssl x509 -in nginx/ssl/fullchain.pem -enddate -noout
 
 # ทดสอบ SSL connection
-curl -vk https://localhost 2>&1 | grep -A5 "SSL connection"
+curl -vk https://localhost:8443 2>&1 | grep -A5 "SSL connection"
 
 # Renew Let's Encrypt certificate
 certbot renew
@@ -1265,7 +1427,7 @@ cp /etc/letsencrypt/live/YOUR_DOMAIN/privkey.pem nginx/ssl/
 docker restart skh-nginx
 ```
 
-### 15.5 Performance Issues
+### 15.8 Performance Issues
 
 ```bash
 # ตรวจสอบ resource usage
@@ -1287,7 +1449,7 @@ ORDER BY total_exec_time DESC
 LIMIT 10;"
 ```
 
-### 15.6 Nginx Errors
+### 15.9 Nginx Errors
 
 ```bash
 # ตรวจสอบ nginx config syntax
@@ -1310,7 +1472,7 @@ docker restart skh-nginx
 # แก้ใน nginx.conf ส่วน limit_req_zone
 ```
 
-### 15.7 การ Reset ระบบทั้งหมด
+### 15.10 การ Reset ระบบทั้งหมด
 
 > **คำเตือน**: จะลบข้อมูลทั้งหมด!
 
@@ -1357,8 +1519,8 @@ bash scripts/import-and-run.sh
 ├─────────────────────────────────────────────────────────────┤
 │  Ports (Exposed)                                             │
 │  ───────────────                                             │
-│  80/443  → Nginx (Web UI + API)                              │
-│  9004    → Garage S3 (Presigned URL access)                  │
+│  8080/8443 → Nginx (Web UI + API)                            │
+│  9004      → Garage S3 (Presigned URL access)                │
 │                                                              │
 ├─────────────────────────────────────────────────────────────┤
 │  Backup / Restore                                            │
@@ -1382,8 +1544,8 @@ bash scripts/import-and-run.sh
 ├─────────────────────────────────────────────────────────────┤
 │  Health Checks                                               │
 │  ─────────────                                               │
-│  curl -k https://localhost/health          # API             │
-│  curl http://localhost/nginx-health        # Nginx           │
+│  curl -k https://localhost:8443/health      # API             │
+│  curl http://localhost:8080/nginx-health   # Nginx            │
 │  docker exec skh-postgres pg_isready       # PostgreSQL      │
 │  docker exec skh-redis redis-cli ping      # Redis           │
 │  docker exec skh-garage /garage status     # Garage          │
@@ -1391,6 +1553,7 @@ bash scripts/import-and-run.sh
 ├─────────────────────────────────────────────────────────────┤
 │  Deployment Scripts                                          │
 │  ──────────────────                                          │
+│  deploy/pull-and-run.sh           Pull & deploy from Docker Hub│
 │  ./scripts/generate-secrets.sh    Generate production secrets│
 │  ./scripts/ssl-setup.sh           Setup SSL certificates     │
 │  ./scripts/build-and-export.sh    Build for offline deploy   │
@@ -1449,10 +1612,14 @@ bash scripts/import-and-run.sh
 ├── backups/                     # Backup files
 │   ├── garageStorage_*.dump
 │   └── garageStorage_*.sql.gz
+├── deploy/
+│   └── pull-and-run.sh          # Pull & deploy from Docker Hub
 ├── backend/                     # Backend source
 │   ├── Dockerfile
 │   ├── prisma/
 │   │   ├── schema.prisma
+│   │   ├── seed.js              # Production seed (plain JS)
+│   │   ├── seed.ts              # Development seed (TypeScript)
 │   │   └── migrations/
 │   └── src/
 ├── frontend/                    # Frontend source
@@ -1494,12 +1661,12 @@ docker volume inspect garageStorage_garage-meta
 └────────────────────────────────────────────────────────┘
 
 Exposed to host:
-  - nginx:     80 → 80,  443 → 443
+  - nginx:     8080 → 80,  8443 → 443
   - garage:    9004 → 9004
   - All others: NO exposed ports
 ```
 
 ---
 
-*คู่มือนี้สร้างขึ้นสำหรับ SKH Storage Service v1.0*
+*คู่มือนี้สร้างขึ้นสำหรับ SKH Storage Service v1.1*
 *อัปเดตล่าสุด: มีนาคม 2569*
