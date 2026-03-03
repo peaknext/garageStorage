@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import { WebhooksService } from '../webhooks/webhooks.service';
-import { AlertLevel } from '../../generated/prisma';
+import { AlertLevel } from '@prisma/client';
 
 export interface QuotaAlertPayload {
   level: AlertLevel;

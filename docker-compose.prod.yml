@@ -161,6 +161,7 @@ services:
       dockerfile: Dockerfile
     image: ${IMAGE_REGISTRY:-}skh-storage-api:${IMAGE_TAG:-latest}
     container_name: skh-storage-api
+    command: ["node", "dist/main"]
     restart: unless-stopped
     # NO ports exposed - nginx proxies to this
     environment:

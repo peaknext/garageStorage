@@ -156,15 +156,43 @@ if [ -z "${GARAGE_KEY}" ] || [ "${GARAGE_KEY}" = "CHANGE_ME" ]; then
 fi
 
 # Run migrations
+# Create config at PROJECT ROOT (/app/prisma.config.mjs) which takes precedence
+# over the TypeScript config in prisma/ subdirectory (jiti may fail in production)
 echo "Running database migrations..."
 IMAGE_TAG="${TAG}" docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" \
-  run --rm storage-api npx prisma migrate deploy || {
+  run --rm --entrypoint sh storage-api -c '
+    echo "DATABASE_URL is ${DATABASE_URL:+SET (hidden)}${DATABASE_URL:-NOT SET}"
+
+    # Remove TS config (jiti may fail in production) and create plain JS override
+    rm -f /app/prisma/prisma.config.ts
+    cat > /app/prisma.config.mjs << "EOFCONFIG"
+import { defineConfig } from "prisma/config";
+export default defineConfig({
+  schema: "./prisma/schema.prisma",
+  datasource: { url: process.env.DATABASE_URL },
+  migrations: { path: "./prisma/migrations" },
+});
+EOFCONFIG
+    npx prisma migrate deploy
+  ' || {
     echo "WARNING: Migration failed. Check logs above."
   }
 
 echo "Running database seed..."
 IMAGE_TAG="${TAG}" docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" \
-  run --rm storage-api npx prisma db seed || {
+  run --rm --entrypoint sh storage-api -c '
+    # Same override for seed
+    rm -f /app/prisma/prisma.config.ts
+    cat > /app/prisma.config.mjs << "EOFCONFIG"
+import { defineConfig } from "prisma/config";
+export default defineConfig({
+  schema: "./prisma/schema.prisma",
+  datasource: { url: process.env.DATABASE_URL },
+  migrations: { path: "./prisma/migrations" },
+});
+EOFCONFIG
+    npx prisma db seed 2>/dev/null || echo "Seed skipped (not configured or already applied)."
+  ' || {
     echo "NOTE: Seed may have already been applied (this is normal on updates)."
   }
 

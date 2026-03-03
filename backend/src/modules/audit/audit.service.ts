@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ActorType, AuditStatus, Prisma } from '../../generated/prisma';
+import { ActorType, AuditStatus, Prisma } from '@prisma/client';
 
 export interface AuditEventPayload {
   actorType: ActorType;

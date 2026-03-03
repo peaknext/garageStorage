@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { CronExpressionParser } from 'cron-parser';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PolicyScope, PolicyType, Prisma } from '../../generated/prisma';
+import { PolicyScope, PolicyType, Prisma } from '@prisma/client';
 
 export interface CreatePolicyDto {
   name: string;

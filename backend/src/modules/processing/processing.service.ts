@@ -4,7 +4,7 @@ import { Queue } from 'bull';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { S3Service } from '../../services/s3/s3.service';
-import { ThumbnailStatus } from '../../generated/prisma';
+import { ThumbnailStatus } from '@prisma/client';
 
 export interface ThumbnailOptions {
   width?: number;
