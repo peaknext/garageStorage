@@ -747,3 +747,89 @@ Copy-Item C:\Apps\garageStorage\.env "C:\Backups\.env.$(Get-Date -Format 'yyyyMM
 | Start Memurai | `Start-Service Memurai` |
 | Start PostgreSQL | `Start-Service postgresql*` |
 | All service status | `Get-Service MinIO, Memurai, postgresql*, nginx` |
+
+---
+
+## Lessons Learned (First Deployment 2026-03-14)
+
+These issues were encountered during the first clean deployment on Windows Server 2022.
+
+### 1. Git Bash Expands Env Vars Starting with `/`
+
+MSYS2 (Git Bash) automatically expands values starting with `/` to Windows paths. This breaks Next.js build when `NEXT_PUBLIC_API_URL=/api/v1` becomes `C:/Program Files/Git/api/v1`.
+
+**Fix:** Prefix with `MSYS_NO_PATHCONV=1` or use full URLs:
+```bash
+MSYS_NO_PATHCONV=1 NEXT_PUBLIC_API_URL=http://localhost:4001/api/v1 npm run build
+```
+
+### 2. PM2 Cannot Run `.bin` Shell Scripts on Windows
+
+`node_modules/.bin/next` is a bash script. PM2 tries to execute it with Node.js and fails with a SyntaxError.
+
+**Fix:** Point PM2 to the actual Node.js entry file:
+```javascript
+// ecosystem.config.js
+script: 'node_modules/next/dist/bin/next',  // NOT 'node_modules/.bin/next'
+```
+
+### 3. Prisma 7.x Requires Adapter in Seed Script
+
+When using the `@prisma/adapter-pg` driver adapter pattern, `new PrismaClient()` without an adapter argument fails. The seed script must use the same adapter pattern.
+
+**Fix:**
+```typescript
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
+```
+
+### 4. Prisma CLI Needs `--config` Flag
+
+`prisma migrate deploy` and `prisma db seed` fail without explicitly pointing to `prisma.config.ts`:
+```bash
+npx prisma migrate deploy --config ./prisma/prisma.config.ts
+```
+
+Also copy `.env` into the `backend/` directory — Prisma CLI loads dotenv from CWD, not from the project root.
+
+### 5. NSSM Environment Changes Require Stop/Start
+
+Setting `AppEnvironmentExtra` via NSSM does not hot-reload. You must stop and restart the service:
+```powershell
+nssm stop MinIO
+nssm set MinIO AppEnvironmentExtra 'KEY=value'
+nssm start MinIO
+```
+
+### 6. nginx Reload Needs NSSM on Windows
+
+`nginx.exe -s reload` fails with "Access is denied" when nginx runs as a Windows Service via NSSM. Use NSSM instead:
+```powershell
+nssm restart nginx   # Instead of: nginx.exe -s reload
+```
+
+### 7. Port and Name Conflicts on Shared Servers
+
+When other PM2 apps already occupy ports 3000/4000, choose different ports and use unique PM2 app names:
+```powershell
+# Always scan first
+netstat -an | findstr LISTENING
+pm2 list
+
+# Use prefixed names to avoid collisions
+name: 'garage-storage-api'   # Not just 'storage-api'
+```
+
+### 8. Separate nginx Server Blocks for Co-located Apps
+
+Don't modify existing nginx server blocks. Add a new `server` block on a different port:
+```nginx
+# New app — separate port, independent of existing config
+server {
+    listen 9002 ssl;
+    ...
+}
+```

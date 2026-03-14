@@ -683,3 +683,121 @@ for (const fileId of Array.from(selectedFiles)) {
 ```
 
 This happens because the Docker build uses stricter TypeScript settings than local dev mode.
+
+## Lessons Learned (Session 2026-03-14 — First Windows Native Deployment)
+
+### Git Bash MSYS Path Expansion Breaks Env Vars
+
+On Windows with Git Bash, environment variables starting with `/` get expanded to Windows paths:
+
+```bash
+# BAD: Git Bash expands /api/v1 to C:/Program Files/Git/api/v1
+NEXT_PUBLIC_API_URL=/api/v1 npm run build
+
+# GOOD: Disable MSYS path conversion
+MSYS_NO_PATHCONV=1 NEXT_PUBLIC_API_URL=/api/v1 npm run build
+
+# GOOD: Use full URL instead of relative path
+NEXT_PUBLIC_API_URL=http://localhost:4001/api/v1 npm run build
+```
+
+**Symptom**: Next.js build fails with `destination does not start with /, http://, or https://` showing a `C:/Program Files/Git/...` path in the rewrite config.
+
+### PM2 on Windows: Use Node Module Path, Not Bin Script
+
+The `node_modules/.bin/next` file is a bash shell script — PM2 on Windows tries to run it with Node and fails:
+
+```javascript
+// BAD: .bin/next is a bash script, causes SyntaxError on Windows
+script: 'node_modules/.bin/next',
+
+// GOOD: Point directly to the Node.js entry point
+script: 'node_modules/next/dist/bin/next',
+```
+
+**Symptom**: PM2 process immediately crashes with `SyntaxError: missing ) after argument list` pointing at `basedir=$(dirname...)` in the bin script.
+
+### Prisma 7.x Seed Script Requires Adapter Pattern
+
+When using Prisma 7.x with the driver adapter pattern (no `url` in `datasource` block), the seed script must also use the adapter — `new PrismaClient()` without args will fail:
+
+```typescript
+// BAD: Fails with "PrismaClient needs non-empty PrismaClientOptions"
+const prisma = new PrismaClient();
+
+// GOOD: Use the same adapter pattern as the main app
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
+```
+
+### Prisma 7.x CLI Requires Explicit Config Path
+
+`prisma migrate deploy` and `prisma db seed` need `--config` to find `prisma.config.ts`:
+
+```bash
+# BAD: Fails with "datasource.url property is required"
+npx prisma migrate deploy
+
+# GOOD: Point to the config file explicitly
+npx prisma migrate deploy --config ./prisma/prisma.config.ts
+```
+
+Also ensure `.env` exists in the backend directory (not just project root) since `prisma.config.ts` loads dotenv from CWD.
+
+### NSSM Environment Variables Require Service Restart
+
+When setting `AppEnvironmentExtra` via NSSM, changes only take effect after stopping and starting the service:
+
+```powershell
+# Environment changes don't apply to a running service
+nssm set MinIO AppEnvironmentExtra 'MINIO_ROOT_USER=admin' 'MINIO_ROOT_PASSWORD=secret'
+
+# Must stop and start (not just restart) for env changes
+nssm stop MinIO
+nssm start MinIO
+```
+
+### nginx Reload Requires Admin Privileges or NSSM
+
+On Windows, `nginx -s reload` fails with "Access is denied" when the nginx process is managed by NSSM as a Windows Service. Use NSSM to restart instead:
+
+```powershell
+# BAD: Fails with access denied
+C:\nginx\nginx.exe -s reload
+
+# GOOD: Use NSSM to restart the service
+nssm restart nginx
+```
+
+### Port Conflict Awareness: Always Scan Before Deploying
+
+On shared Windows Servers, other applications may already occupy common ports (3000, 4000, etc.). Before deployment:
+
+```powershell
+# Check all listening ports
+netstat -an | findstr LISTENING
+
+# Check existing PM2 processes
+pm2 list
+
+# Use unique PM2 app names to avoid collisions
+name: 'garage-storage-api'    # NOT 'storage-api' (too generic)
+name: 'garage-admin-ui'       # NOT 'admin-ui' (too generic)
+```
+
+### Co-located Services: Separate nginx Server Blocks by Port
+
+When deploying alongside existing apps on the same nginx instance, add a new `server` block on a different port rather than modifying the existing config:
+
+```nginx
+# Existing app on port 443 — don't touch
+server { listen 443 ssl; ... }
+
+# New app on a separate port with its own upstreams
+server { listen 9002 ssl; ... }
+```
+
+This avoids breaking existing services and makes it easy to manage independently.
