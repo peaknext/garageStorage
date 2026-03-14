@@ -52,7 +52,7 @@ enum AppStatus {
 model Bucket {
   id             String @id @default(uuid())
   name           String
-  garageBucketId String @unique @map("garage_bucket_id")
+  s3BucketId String @unique @map("garage_bucket_id")
 
   // Quota (optional per-bucket limit)
   quotaBytes BigInt? @map("quota_bytes")

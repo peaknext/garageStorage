@@ -24,7 +24,7 @@ describe('FilesService', () => {
     id: 'bucket-1',
     name: 'test-bucket',
     applicationId: 'app-1',
-    garageBucketId: 'garage-bucket-1',
+    s3BucketId: 'garage-bucket-1',
     application: {
       id: 'app-1',
       storageQuota: BigInt(1073741824), // 1GB

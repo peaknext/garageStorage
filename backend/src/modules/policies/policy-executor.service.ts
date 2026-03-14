@@ -170,7 +170,7 @@ export class PolicyExecutorService {
     for (const file of files) {
       try {
         // Delete from S3
-        await this.s3.deleteFile(file.bucket.garageBucketId, file.key);
+        await this.s3.deleteFile(file.bucket.s3BucketId, file.key);
 
         // Delete from database
         await this.prisma.file.delete({ where: { id: file.id } });
@@ -223,7 +223,7 @@ export class PolicyExecutorService {
     let freedBytes = 0;
     for (const file of files) {
       try {
-        await this.s3.deleteFile(file.bucket.garageBucketId, file.key);
+        await this.s3.deleteFile(file.bucket.s3BucketId, file.key);
         await this.prisma.file.delete({ where: { id: file.id } });
         deletedCount++;
         freedBytes += Number(file.sizeBytes);

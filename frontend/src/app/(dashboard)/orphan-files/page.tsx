@@ -40,7 +40,7 @@ interface DbOrphan {
   key: string;
   bucketId: string;
   bucketName: string;
-  garageBucketId: string;
+  s3BucketId: string;
   sizeBytes: number;
   createdAt: string;
   originalName: string;
@@ -51,7 +51,7 @@ interface S3Orphan {
   key: string;
   bucketId: string;
   bucketName: string;
-  garageBucketId: string;
+  s3BucketId: string;
   sizeBytes: number;
   lastModified: string;
 }
@@ -149,8 +149,8 @@ export default function OrphanFilesPage() {
     },
   });
 
-  const cleanupS3Mutation = useMutation<CleanupS3Result, Error, Array<{ key: string; garageBucketId: string }> | undefined>({
-    mutationFn: async (orphans?: Array<{ key: string; garageBucketId: string }>) => {
+  const cleanupS3Mutation = useMutation<CleanupS3Result, Error, Array<{ key: string; s3BucketId: string }> | undefined>({
+    mutationFn: async (orphans?: Array<{ key: string; s3BucketId: string }>) => {
       const body: Record<string, unknown> = {};
       if (orphans && orphans.length > 0) {
         body.orphans = orphans;
@@ -554,7 +554,7 @@ export default function OrphanFilesPage() {
         onConfirm={() => {
           const orphansToDelete = scanResult?.s3Orphans
             .filter((o) => selectedS3Orphans.has(o.key))
-            .map((o) => ({ key: o.key, garageBucketId: o.garageBucketId }));
+            .map((o) => ({ key: o.key, s3BucketId: o.s3BucketId }));
           cleanupS3Mutation.mutate(orphansToDelete);
           setShowCleanupS3Dialog(false);
         }}

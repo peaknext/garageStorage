@@ -65,7 +65,7 @@ export class ProcessingService {
     const job = await this.thumbnailQueue.add('generate', {
       fileId,
       bucketId: file.bucketId,
-      garageBucketId: file.bucket.garageBucketId,
+      s3BucketId: file.bucket.s3BucketId,
       key: file.key,
       mimeType: file.mimeType,
       options: {
@@ -101,7 +101,7 @@ export class ProcessingService {
     }
 
     const url = await this.s3.getPresignedDownloadUrl(
-      file.bucket.garageBucketId,
+      file.bucket.s3BucketId,
       file.thumbnailKey,
       expiresIn,
     );
@@ -128,7 +128,7 @@ export class ProcessingService {
     }
 
     const url = await this.s3.getPresignedDownloadUrl(
-      file.bucket.garageBucketId,
+      file.bucket.s3BucketId,
       file.key,
       expiresIn,
     );
@@ -219,7 +219,7 @@ export class ProcessingService {
     const job = await this.thumbnailQueue.add('optimize', {
       fileId,
       bucketId: file.bucketId,
-      garageBucketId: file.bucket.garageBucketId,
+      s3BucketId: file.bucket.s3BucketId,
       key: file.key,
       mimeType: file.mimeType,
       optimization: {
@@ -256,7 +256,7 @@ export class ProcessingService {
     const job = await this.thumbnailQueue.add('convert', {
       fileId,
       bucketId: file.bucketId,
-      garageBucketId: file.bucket.garageBucketId,
+      s3BucketId: file.bucket.s3BucketId,
       key: file.key,
       mimeType: file.mimeType,
       targetFormat,

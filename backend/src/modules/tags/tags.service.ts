@@ -118,7 +118,9 @@ export class TagsService {
     return fileTags.map((ft) => ft.tag);
   }
 
-  async getFilesByTag(tagId: string, page = 1, limit = 50) {
+  async getFilesByTag(tagId: string, rawPage = 1, rawLimit = 50) {
+    const page = Number(rawPage) || 1;
+    const limit = Number(rawLimit) || 50;
     const [fileTags, total] = await Promise.all([
       this.prisma.fileTag.findMany({
         where: { tagId },
@@ -163,7 +165,7 @@ export class TagsService {
     return this.delete(id);
   }
 
-  async getFilesByTagWithAppValidation(appId: string, tagId: string, page = 1, limit = 50) {
+  async getFilesByTagWithAppValidation(appId: string, tagId: string, rawPage = 1, rawLimit = 50) {
     const tag = await this.prisma.tag.findUnique({ where: { id: tagId } });
     if (!tag) {
       throw new NotFoundException('Tag not found');
@@ -171,7 +173,7 @@ export class TagsService {
     if (tag.applicationId !== appId) {
       throw new NotFoundException('Tag not found');
     }
-    return this.getFilesByTag(tagId, page, limit);
+    return this.getFilesByTag(tagId, rawPage, rawLimit);
   }
 
   async getFileTagsWithAppValidation(appId: string, fileId: string) {

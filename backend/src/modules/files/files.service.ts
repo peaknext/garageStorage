@@ -89,7 +89,7 @@ export class FilesService {
     );
 
     const uploadUrl = await this.s3.getPresignedUploadUrl(
-      bucket.garageBucketId,
+      bucket.s3BucketId,
       key,
       dto.contentType,
       3600,
@@ -126,13 +126,13 @@ export class FilesService {
       throw new NotFoundException('Bucket not found');
     }
 
-    const exists = await this.s3.fileExists(bucket.garageBucketId, upload.key);
+    const exists = await this.s3.fileExists(bucket.s3BucketId, upload.key);
     if (!exists) {
       throw new BadRequestException('File not found in storage');
     }
 
     const s3Metadata = await this.s3.getFileMetadata(
-      bucket.garageBucketId,
+      bucket.s3BucketId,
       upload.key,
     );
 
@@ -182,7 +182,7 @@ export class FilesService {
       }
     }
 
-    return this.formatFileResponse(file, bucket.garageBucketId);
+    return this.formatFileResponse(file, bucket.s3BucketId);
   }
 
   async uploadFile(
@@ -205,7 +205,7 @@ export class FilesService {
     const key = dto.key || this.generateFileKey(file.mimetype, originalName);
 
     const { etag } = await this.s3.uploadFile(
-      bucket.garageBucketId,
+      bucket.s3BucketId,
       key,
       file.buffer,
       file.mimetype,
@@ -244,7 +244,7 @@ export class FilesService {
       }
     }
 
-    return this.formatFileResponse(fileRecord, bucket.garageBucketId);
+    return this.formatFileResponse(fileRecord, bucket.s3BucketId);
   }
 
   async getDownloadUrl(
@@ -253,12 +253,15 @@ export class FilesService {
     fileId: string,
     expiresIn: number = 3600,
   ) {
+    // Sanitize expiresIn: NaN can arrive from ValidationPipe's enableImplicitConversion
+    const expiry = Number(expiresIn) || 3600;
+
     const file = await this.getFileWithBucket(bucketId, fileId);
 
     const url = await this.s3.getPresignedDownloadUrl(
-      file.bucket.garageBucketId,
+      file.bucket.s3BucketId,
       file.key,
-      expiresIn,
+      expiry,
       file.originalName,
     );
 
@@ -282,7 +285,7 @@ export class FilesService {
 
     return {
       url,
-      expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + expiry * 1000).toISOString(),
     };
   }
 
@@ -297,12 +300,12 @@ export class FilesService {
 
     if (permanent) {
       // Permanent delete: remove from S3 and hard delete from DB
-      await this.s3.deleteFile(file.bucket.garageBucketId, file.key);
+      await this.s3.deleteFile(file.bucket.s3BucketId, file.key);
 
       // Delete thumbnail from S3 if it exists
       if (file.thumbnailKey) {
         try {
-          await this.s3.deleteFile(file.bucket.garageBucketId, file.thumbnailKey);
+          await this.s3.deleteFile(file.bucket.s3BucketId, file.thumbnailKey);
         } catch (error) {
           this.logger.warn(`Failed to delete thumbnail for file ${fileId}: ${(error as Error).message}`);
         }
@@ -409,8 +412,6 @@ export class FilesService {
     },
   ) {
     const {
-      page = 1,
-      limit = 50,
       prefix,
       mimeType,
       sort = 'createdAt',
@@ -420,6 +421,8 @@ export class FilesService {
       sizeMin,
       sizeMax,
     } = query;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 50;
 
     const bucket = await this.prisma.bucket.findFirst({
       where: { id: bucketId, applicationId: appId },
@@ -469,7 +472,7 @@ export class FilesService {
 
     return {
       data: await Promise.all(
-        files.map((f) => this.formatFileResponse(f, bucket.garageBucketId)),
+        files.map((f) => this.formatFileResponse(f, bucket.s3BucketId)),
       ),
       meta: {
         total,
@@ -578,7 +581,7 @@ export class FilesService {
 
     for (const file of files) {
       try {
-        const buffer = await this.s3.downloadFile(bucket.garageBucketId, file.key);
+        const buffer = await this.s3.downloadFile(bucket.s3BucketId, file.key);
         archive.append(buffer, { name: file.originalName || file.key });
       } catch (error) {
         this.logger.error(`Failed to add file ${file.id} to ZIP: ${(error as Error).message}`);
@@ -704,9 +707,9 @@ export class FilesService {
     });
   }
 
-  private async formatFileResponse(file: any, garageBucketId: string) {
+  private async formatFileResponse(file: any, s3BucketId: string) {
     const url = await this.s3.getPresignedDownloadUrl(
-      garageBucketId,
+      s3BucketId,
       file.key,
       300,
     );
@@ -715,7 +718,7 @@ export class FilesService {
     let thumbnailUrl: string | null = null;
     if (file.thumbnailStatus === 'GENERATED' && file.thumbnailKey) {
       thumbnailUrl = await this.s3.getPresignedDownloadUrl(
-        garageBucketId,
+        s3BucketId,
         file.thumbnailKey,
         300,
       );
@@ -789,9 +792,9 @@ export class FilesService {
 
     // Copy the version's S3 object to the current file key
     await this.s3.copyFile(
-      file.bucket.garageBucketId,
+      file.bucket.s3BucketId,
       version.key,
-      file.bucket.garageBucketId,
+      file.bucket.s3BucketId,
       file.key,
     );
 
@@ -853,7 +856,7 @@ export class FilesService {
     // Delete from S3 if it has a different key than the current file
     if (version.key !== file.key) {
       try {
-        await this.s3.deleteFile(file.bucket.garageBucketId, version.key);
+        await this.s3.deleteFile(file.bucket.s3BucketId, version.key);
       } catch (error) {
         this.logger.warn(`Failed to delete version S3 object: ${(error as Error).message}`);
       }
@@ -927,10 +930,10 @@ export class FilesService {
   }
 
   /**
-   * Sync files from Garage S3 bucket to the database
+   * Sync files from S3 bucket to the database
    * Imports files that exist in S3 but not in the database
    */
-  async syncFilesFromGarage(bucketId: string): Promise<{
+  async syncFilesFromS3(bucketId: string): Promise<{
     synced: number;
     skipped: number;
     totalInS3: number;
@@ -961,7 +964,7 @@ export class FilesService {
 
     do {
       const result = await this.s3.listFiles(
-        bucket.garageBucketId,
+        bucket.s3BucketId,
         undefined,
         1000,
         continuationToken,
@@ -984,7 +987,7 @@ export class FilesService {
         try {
           // Get file metadata from S3
           const metadata = await this.s3.getFileMetadata(
-            bucket.garageBucketId,
+            bucket.s3BucketId,
             s3File.key,
           );
 
@@ -1065,9 +1068,9 @@ export class FilesService {
 
     // Copy file in S3
     await this.s3.copyFile(
-      sourceBucket.garageBucketId,
+      sourceBucket.s3BucketId,
       sourceFile.key,
-      targetBucket.garageBucketId,
+      targetBucket.s3BucketId,
       newKey,
     );
 
@@ -1096,7 +1099,7 @@ export class FilesService {
       targetBucket: targetBucket.name,
     });
 
-    return this.formatFileResponse(newFile, targetBucket.garageBucketId);
+    return this.formatFileResponse(newFile, targetBucket.s3BucketId);
   }
 
   // Move file to another bucket
@@ -1128,14 +1131,14 @@ export class FilesService {
 
     // Copy file in S3 to new location
     await this.s3.copyFile(
-      sourceBucket.garageBucketId,
+      sourceBucket.s3BucketId,
       sourceFile.key,
-      targetBucket.garageBucketId,
+      targetBucket.s3BucketId,
       newKey,
     );
 
     // Delete old file from S3
-    await this.s3.deleteFile(sourceBucket.garageBucketId, sourceFile.key);
+    await this.s3.deleteFile(sourceBucket.s3BucketId, sourceFile.key);
 
     // Update file record
     const updatedFile = await this.prisma.file.update({
@@ -1166,12 +1169,13 @@ export class FilesService {
       newKey,
     });
 
-    return this.formatFileResponse(updatedFile, targetBucket.garageBucketId);
+    return this.formatFileResponse(updatedFile, targetBucket.s3BucketId);
   }
 
   // Advanced search across all buckets
   async searchFiles(appId: string, dto: SearchFilesDto) {
-    const { page = 1, limit = 50 } = dto;
+    const page = Number(dto.page) || 1;
+    const limit = Number(dto.limit) || 50;
 
     // Build where clause - exclude soft-deleted files
     const where: any = {
@@ -1228,7 +1232,7 @@ export class FilesService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          bucket: { select: { id: true, name: true, garageBucketId: true } },
+          bucket: { select: { id: true, name: true, s3BucketId: true } },
           tags: { include: { tag: true } },
         },
       }),
@@ -1238,7 +1242,7 @@ export class FilesService {
     // Format results
     const data = await Promise.all(
       files.map(async (f) => {
-        const formatted = await this.formatFileResponse(f, f.bucket.garageBucketId);
+        const formatted = await this.formatFileResponse(f, f.bucket.s3BucketId);
         return {
           ...formatted,
           bucket: { id: f.bucket.id, name: f.bucket.name },
@@ -1280,7 +1284,7 @@ export class FilesService {
     }
 
     const url = await this.s3.getPresignedDownloadUrl(
-      bucket.garageBucketId,
+      bucket.s3BucketId,
       file.thumbnailKey,
       3600,
     );

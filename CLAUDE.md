@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A centralized file storage service using Garage (S3-Compatible Object Storage) for multi-tenant web applications. The system provides a REST API for external applications and an admin dashboard for management.
+A centralized file storage service using MinIO (S3-Compatible Object Storage) for multi-tenant web applications. The system provides a REST API for external applications and an admin dashboard for management.
 
 ## Tech Stack
 
-- **Backend**: NestJS + TypeScript, PostgreSQL (Prisma ORM), Redis cache, Garage S3 storage
+- **Backend**: NestJS + TypeScript, PostgreSQL (Prisma ORM), Redis cache, MinIO S3 storage
 - **Frontend**: Next.js 14 (App Router), Tailwind CSS + shadcn/ui, TanStack Query, Axios, Zustand (state), Recharts (analytics)
-- **Infrastructure**: Docker Compose, Garage v2.1.0, PostgreSQL (Docker container)
+- **Infrastructure**: Docker Compose, MinIO, PostgreSQL (Docker container)
 - **Processing**: Sharp (image thumbnails), Bull (background jobs), @nestjs/schedule (cron), EventEmitter (async events)
 
 ## 🚨 Critical Development Rules
@@ -92,11 +92,10 @@ npx prisma db seed                            # Run seed script
 ## Initial Setup
 
 1. Copy `.env.example` to `.env` and configure values
-2. Initialize Garage storage:
-   - **Windows**: Run `.\scripts\setup-garage.ps1` in PowerShell
-   - **Linux/macOS**: Run `./scripts/setup-garage.sh`
-   - Or manually: `docker exec garage-storage /garage key create storage-api-key`
-3. Copy the generated `GARAGE_ACCESS_KEY` and `GARAGE_SECRET_KEY` to `.env`
+2. Initialize MinIO storage:
+   - **Windows**: Run `.\scripts\setup-minio.ps1` in PowerShell (as Administrator)
+   - **Linux/macOS**: Run `./scripts/setup-minio.sh`
+3. Copy the generated `S3_ACCESS_KEY` and `S3_SECRET_KEY` to `.env`
 4. Run migrations: `cd backend && npx prisma migrate dev`
 5. Seed database: `npx prisma db seed`
 6. Start services: `docker compose up -d --build`
@@ -118,8 +117,8 @@ npx prisma db seed                            # Run seed script
          │                  │
          ▼                  ▼
 ┌─────────────┐    ┌─────────────────────┐
-│  PostgreSQL │    │  Garage S3 Storage  │
-│  Port: 9006 │    │    Port: 9004       │
+│  PostgreSQL │    │  MinIO S3 Storage   │
+│  Port: 9006 │    │    Port: 9000       │
 └─────────────┘    └─────────────────────┘
 ```
 
@@ -146,11 +145,11 @@ The S3 service uses two clients to handle Docker networking:
 
 ```typescript
 // Internal client - for server-side operations (uploads, deletes)
-// Uses: GARAGE_ENDPOINT (http://garage:9004 - Docker network)
+// Uses: S3_ENDPOINT (http://localhost:9000 - S3 API)
 s3Client;
 
 // Public client - for generating presigned URLs
-// Uses: GARAGE_PUBLIC_ENDPOINT (http://localhost:9004 - browser accessible)
+// Uses: S3_PUBLIC_ENDPOINT (http://YOUR_SERVER_IP:9000 - browser accessible)
 s3PublicClient;
 ```
 
@@ -228,7 +227,7 @@ External apps can subscribe to these events via webhook configuration:
 | `file.downloaded` | File download URL generated | `fileId`, `key`, `bucket` |
 | `file.copied` | File copied to another bucket | `sourceFileId`, `newFileId`, `sourceBucket`, `targetBucket` |
 | `file.moved` | File moved to another bucket | `fileId`, `fromBucket`, `toBucket` |
-| `bucket.created` | New bucket created | `bucketId`, `name`, `garageBucketId` |
+| `bucket.created` | New bucket created | `bucketId`, `name`, `s3BucketId` |
 | `bucket.deleted` | Bucket deleted | `bucketId`, `name` |
 | `share.created` | Share link created | `shareId`, `fileId`, `fileName`, `expiresAt`, `shareUrl` |
 | `share.accessed` | Share link used for download | `shareId`, `fileId`, `fileName`, `downloadCount`, `accessedAt` |
@@ -241,8 +240,7 @@ External apps can subscribe to these events via webhook configuration:
 
 ### Key Files
 
-- [s3.service.ts](backend/src/services/s3/s3.service.ts) - Dual S3 client with presigned URL generation
-- [garage-admin.service.ts](backend/src/services/s3/garage-admin.service.ts) - Garage admin API for bucket management
+- [s3.service.ts](backend/src/services/s3/s3.service.ts) - Dual S3 client (MinIO) with presigned URL generation
 - [api-key.guard.ts](backend/src/common/guards/api-key.guard.ts) - API key validation with Redis caching
 - [jwt-auth.guard.ts](backend/src/common/guards/jwt-auth.guard.ts) - JWT token validation
 - [api-client.ts](frontend/src/lib/api-client.ts) - Axios instance with auth interceptors
@@ -258,13 +256,11 @@ External apps can subscribe to these events via webhook configuration:
 
 Key variables in docker-compose.yml for `storage-api`:
 
-| Variable                 | Description                           | Example                 |
-| ------------------------ | ------------------------------------- | ----------------------- |
-| `GARAGE_ENDPOINT`        | Internal S3 endpoint (Docker network) | `http://garage:9004`    |
-| `GARAGE_PUBLIC_ENDPOINT` | Public S3 endpoint (browser access)   | `http://localhost:9004` |
-| `GARAGE_ADMIN_ENDPOINT`  | Garage admin API endpoint             | `http://garage:3903`    |
-| `GARAGE_ADMIN_TOKEN`     | Garage admin API token (from garage.toml) | Base64-encoded string |
-| `API_BASE_URL`           | Public API URL for share links        | `http://localhost:9001` |
+| Variable                 | Description                           | Example                      |
+| ------------------------ | ------------------------------------- | ---------------------------- |
+| `S3_ENDPOINT`            | S3 endpoint for server operations     | `http://localhost:9000`      |
+| `S3_PUBLIC_ENDPOINT`     | Public S3 endpoint (browser access)   | `http://YOUR_SERVER_IP:9000` |
+| `API_BASE_URL`           | Public API URL for share links        | `http://localhost:9001`      |
 
 ## Service Ports
 
@@ -274,10 +270,9 @@ Key variables in docker-compose.yml for `storage-api`:
 | Admin UI (Dev)      | 3000          | `npm run dev` in frontend|
 | Storage API         | 9001          | Both Docker and dev      |
 | Swagger Docs        | 9001/api/docs |                          |
-| Garage S3           | 9004          |                          |
-| Garage Admin        | 3903          |                          |
-| Garage WebUI        | 9003          |                          |
-| Redis               | 9005          |                          |
+| MinIO S3 API        | 9000          | MinIO S3 API             |
+| MinIO Console       | 9001          | MinIO Console            |
+| Redis               | 6379 / 9005   | Native / Docker mapped   |
 | PostgreSQL          | 9006          | Docker container         |
 
 ## Default Credentials
@@ -373,7 +368,7 @@ When adding packages to `package.json`, run `npm install` locally first to updat
 
 ### S3/Download Issues
 
-- **AccessDenied: Invalid signature**: Ensure `GARAGE_PUBLIC_ENDPOINT` matches the URL browsers use. Presigned URLs must be signed with the public endpoint.
+- **AccessDenied: Invalid signature**: Ensure `S3_PUBLIC_ENDPOINT` matches the URL browsers use. Presigned URLs must be signed with the public endpoint.
 - **Download URL uses internal hostname**: Check that `s3PublicClient` is used for `getPresignedDownloadUrl`.
 
 ### TypeScript Errors

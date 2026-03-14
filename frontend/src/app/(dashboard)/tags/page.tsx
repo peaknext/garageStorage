@@ -25,6 +25,7 @@ import {
   X,
   Check,
   Palette,
+  Copy,
 } from 'lucide-react';
 
 interface Application {
@@ -371,13 +372,24 @@ export default function TagsPage() {
                             ) : (
                               // View mode
                               <>
-                                <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-3 min-w-0">
                                   <div
-                                    className="h-3 w-3 rounded-full"
+                                    className="h-3 w-3 rounded-full flex-shrink-0"
                                     style={{ backgroundColor: tag.color || '#6b7280' }}
                                   />
                                   <span className="text-white font-medium">{tag.name}</span>
-                                  <span className="flex items-center gap-1 text-sm text-[#c4bbd3]">
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(tag.id);
+                                      toast({ title: 'Tag ID copied', variant: 'success' });
+                                    }}
+                                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.05] hover:bg-white/[0.1] transition-colors group"
+                                    title="Click to copy Tag ID"
+                                  >
+                                    <span className="text-xs font-mono text-[#c4bbd3]/60 truncate max-w-[140px]">{tag.id}</span>
+                                    <Copy className="h-3 w-3 text-[#c4bbd3]/40 group-hover:text-[#c4bbd3] flex-shrink-0" />
+                                  </button>
+                                  <span className="flex items-center gap-1 text-sm text-[#c4bbd3] flex-shrink-0">
                                     <Files className="h-3.5 w-3.5" />
                                     {tag._count.files}
                                   </span>

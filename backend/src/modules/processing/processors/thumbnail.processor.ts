@@ -9,7 +9,7 @@ import { ThumbnailStatus } from '@prisma/client';
 interface ThumbnailJobData {
   fileId: string;
   bucketId: string;
-  garageBucketId: string;
+  s3BucketId: string;
   key: string;
   mimeType: string;
   options: {
@@ -31,12 +31,12 @@ export class ThumbnailProcessor {
 
   @Process('generate')
   async handleThumbnailGeneration(job: Job<ThumbnailJobData>) {
-    const { fileId, garageBucketId, key, options } = job.data;
+    const { fileId, s3BucketId, key, options } = job.data;
     this.logger.log(`Generating thumbnail for file ${fileId}`);
 
     try {
       // Download original file from S3
-      const originalData = await this.s3.downloadFile(garageBucketId, key);
+      const originalData = await this.s3.downloadFile(s3BucketId, key);
 
       // Process with Sharp
       let sharpInstance = sharp(originalData);
@@ -72,7 +72,7 @@ export class ThumbnailProcessor {
 
       // Upload thumbnail to S3
       await this.s3.uploadFile(
-        garageBucketId,
+        s3BucketId,
         thumbnailKey,
         thumbnailBuffer,
         `image/${options.format}`,

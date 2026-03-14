@@ -19,7 +19,9 @@ export class ApplicationsService {
     status?: string;
     search?: string;
   }) {
-    const { page = 1, limit = 20, status, search } = query;
+    const { status, search } = query;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
 
     const where: any = {};
 

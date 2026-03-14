@@ -106,7 +106,7 @@ export class SharesService {
 
     // Generate download URL
     const downloadUrl = await this.s3.getPresignedDownloadUrl(
-      share.file.bucket.garageBucketId,
+      share.file.bucket.s3BucketId,
       share.file.key,
       3600,
       share.file.originalName,
@@ -173,7 +173,7 @@ export class SharesService {
 
     // Generate download URL
     const url = await this.s3.getPresignedDownloadUrl(
-      share.file.bucket.garageBucketId,
+      share.file.bucket.s3BucketId,
       share.file.key,
       300,
       share.file.originalName,

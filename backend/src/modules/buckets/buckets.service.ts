@@ -7,7 +7,6 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { S3Service } from '../../services/s3/s3.service';
-import { GarageAdminService } from '../../services/s3/garage-admin.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { CreateBucketDto } from './dto/create-bucket.dto';
 import { UpdateBucketDto } from './dto/update-bucket.dto';
@@ -20,12 +19,12 @@ export class BucketsService {
   constructor(
     private prisma: PrismaService,
     private s3: S3Service,
-    private garageAdmin: GarageAdminService,
     private webhooks: WebhooksService,
   ) {}
 
   async findAll(appId: string, query: { page?: number; limit?: number }) {
-    const { page = 1, limit = 20 } = query;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
 
     const [buckets, total] = await Promise.all([
       this.prisma.bucket.findMany({
@@ -46,6 +45,7 @@ export class BucketsService {
       data: buckets.map((bucket) => ({
         id: bucket.id,
         name: bucket.name,
+        s3BucketId: bucket.s3BucketId,
         usedBytes: Number(bucket.usedBytes),
         quotaBytes: bucket.quotaBytes ? Number(bucket.quotaBytes) : null,
         fileCount: bucket._count.files,
@@ -78,6 +78,7 @@ export class BucketsService {
     return {
       id: bucket.id,
       name: bucket.name,
+      s3BucketId: bucket.s3BucketId,
       usedBytes: Number(bucket.usedBytes),
       quotaBytes: bucket.quotaBytes ? Number(bucket.quotaBytes) : null,
       fileCount: bucket._count.files,
@@ -100,11 +101,11 @@ export class BucketsService {
     }
 
     // Generate unique bucket ID for Garage
-    const garageBucketId = `${appId.substring(0, 8)}-${dto.name}-${uuidv4().substring(0, 8)}`;
+    const s3BucketId = `${appId.substring(0, 8)}-${dto.name}-${uuidv4().substring(0, 8)}`;
 
     // Create bucket in Garage
     try {
-      await this.s3.createBucket(garageBucketId);
+      await this.s3.createBucket(s3BucketId);
     } catch (error) {
       throw new BadRequestException(
         `Failed to create bucket in storage: ${(error as Error).message}`,
@@ -116,7 +117,7 @@ export class BucketsService {
       data: {
         applicationId: appId,
         name: dto.name,
-        garageBucketId,
+        s3BucketId,
         quotaBytes: dto.quotaBytes ? BigInt(dto.quotaBytes) : null,
         isPublic: dto.isPublic || false,
         corsEnabled: dto.corsEnabled !== false,
@@ -127,13 +128,13 @@ export class BucketsService {
     await this.webhooks.trigger(appId, 'bucket.created', {
       bucketId: bucket.id,
       name: bucket.name,
-      garageBucketId: bucket.garageBucketId,
+      s3BucketId: bucket.s3BucketId,
     });
 
     return {
       id: bucket.id,
       name: bucket.name,
-      garageBucketId: bucket.garageBucketId,
+      s3BucketId: bucket.s3BucketId,
       createdAt: bucket.createdAt,
     };
   }
@@ -307,7 +308,7 @@ export class BucketsService {
       // Delete files from S3
       for (const file of files) {
         try {
-          await this.s3.deleteFile(bucket.garageBucketId, file.key);
+          await this.s3.deleteFile(bucket.s3BucketId, file.key);
         } catch (error) {
           // Log but continue
           console.error(`Failed to delete file ${file.key}:`, error);
@@ -318,9 +319,9 @@ export class BucketsService {
       await this.prisma.file.deleteMany({ where: { bucketId } });
     }
 
-    // Delete bucket from Garage
+    // Delete bucket from S3
     try {
-      await this.s3.deleteBucket(bucket.garageBucketId);
+      await this.s3.deleteBucket(bucket.s3BucketId);
     } catch (error) {
       // Log but continue
       console.error(`Failed to delete bucket from storage:`, error);

@@ -30,7 +30,9 @@ export class RecycleBinService {
     page?: number;
     limit?: number;
   }) {
-    const { applicationId, bucketId, page = 1, limit = 50 } = query;
+    const { applicationId, bucketId } = query;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 50;
 
     const where: any = {
       deletedAt: { not: null },
@@ -253,7 +255,7 @@ export class RecycleBinService {
 
     // Delete from S3
     try {
-      await this.s3.deleteFile(file.bucket.garageBucketId, file.key);
+      await this.s3.deleteFile(file.bucket.s3BucketId, file.key);
     } catch (error) {
       this.logger.warn(
         `Failed to delete file from S3: ${(error as Error).message}`,
@@ -263,7 +265,7 @@ export class RecycleBinService {
     // Delete thumbnail from S3
     if (file.thumbnailKey) {
       try {
-        await this.s3.deleteFile(file.bucket.garageBucketId, file.thumbnailKey);
+        await this.s3.deleteFile(file.bucket.s3BucketId, file.thumbnailKey);
       } catch (error) {
         this.logger.warn(
           `Failed to delete thumbnail from S3: ${(error as Error).message}`,

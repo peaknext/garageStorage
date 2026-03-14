@@ -216,7 +216,9 @@ export class FoldersService {
     });
   }
 
-  async getFilesInFolder(folderId: string, page = 1, limit = 50) {
+  async getFilesInFolder(folderId: string, rawPage = 1, rawLimit = 50) {
+    const page = Number(rawPage) || 1;
+    const limit = Number(rawLimit) || 50;
     const [fileFolders, total] = await Promise.all([
       this.prisma.fileFolder.findMany({
         where: { folderId },
@@ -347,9 +349,9 @@ export class FoldersService {
     return this.delete(id);
   }
 
-  async getFilesInFolderWithAppValidation(appId: string, folderId: string, page = 1, limit = 50) {
+  async getFilesInFolderWithAppValidation(appId: string, folderId: string, rawPage = 1, rawLimit = 50) {
     await this.validateFolderOwnership(appId, folderId);
-    return this.getFilesInFolder(folderId, page, limit);
+    return this.getFilesInFolder(folderId, rawPage, rawLimit);
   }
 
   async getFolderBreadcrumbWithAppValidation(appId: string, folderId: string) {

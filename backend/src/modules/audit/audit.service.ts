@@ -84,7 +84,9 @@ export class AuditService {
    * Query audit logs with pagination and filters
    */
   async findAll(query: QueryAuditLogsDto) {
-    const { page = 1, limit = 50, actorType, action, resourceType, resourceId, startDate, endDate, search } = query;
+    const { actorType, action, resourceType, resourceId, startDate, endDate, search } = query;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 50;
 
     const where: Prisma.AuditLogWhereInput = {};
 

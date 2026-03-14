@@ -121,7 +121,8 @@ export class WebhooksService {
   }
 
   async getDeliveries(webhookId: string, query: { page?: number; limit?: number }) {
-    const { page = 1, limit = 20 } = query;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
 
     const [deliveries, total] = await Promise.all([
       this.prisma.webhookDelivery.findMany({

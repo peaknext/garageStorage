@@ -20,12 +20,12 @@ export class S3Service {
   private readonly logger = new Logger(S3Service.name);
 
   constructor(private configService: ConfigService) {
-    const internalEndpoint = this.configService.get('garage.endpoint') || 'http://localhost:9004';
-    const publicEndpoint = this.configService.get('garage.publicEndpoint') || internalEndpoint;
-    const region = this.configService.get('garage.region', 'garage');
+    const internalEndpoint = this.configService.get('s3.endpoint') || 'http://localhost:9000';
+    const publicEndpoint = this.configService.get('s3.publicEndpoint') || internalEndpoint;
+    const region = this.configService.get('s3.region', 'us-east-1');
     const credentials = {
-      accessKeyId: this.configService.get('garage.accessKey') || '',
-      secretAccessKey: this.configService.get('garage.secretKey') || '',
+      accessKeyId: this.configService.get('s3.accessKey') || '',
+      secretAccessKey: this.configService.get('s3.secretKey') || '',
     };
 
     // Internal client for server-side operations (uses Docker network hostname)
@@ -33,7 +33,7 @@ export class S3Service {
       endpoint: internalEndpoint,
       region,
       credentials,
-      forcePathStyle: true, // Required for Garage
+      forcePathStyle: true, // Required for S3-compatible storage (MinIO)
     });
 
     // Public client for generating presigned URLs (uses public hostname)
@@ -41,12 +41,12 @@ export class S3Service {
       endpoint: publicEndpoint,
       region,
       credentials,
-      forcePathStyle: true, // Required for Garage
+      forcePathStyle: true, // Required for S3-compatible storage (MinIO)
     });
   }
 
   /**
-   * Create a new bucket in Garage
+   * Create a new bucket in S3
    */
   async createBucket(bucketName: string): Promise<void> {
     const command = new CreateBucketCommand({ Bucket: bucketName });
@@ -55,7 +55,7 @@ export class S3Service {
   }
 
   /**
-   * Delete a bucket from Garage
+   * Delete a bucket from S3
    */
   async deleteBucket(bucketName: string): Promise<void> {
     const command = new DeleteBucketCommand({ Bucket: bucketName });

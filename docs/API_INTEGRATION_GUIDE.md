@@ -135,6 +135,7 @@ GET /buckets?page=1&limit=20
     {
       "id": "550e8400-e29b-41d4-a716-446655440000",
       "name": "documents",
+      "s3BucketId": "a1b2c3d4-documents-e5f6g7h8",
       "usedBytes": 1048576,
       "quotaBytes": 5368709120,
       "fileCount": 5,
@@ -162,6 +163,7 @@ GET /buckets/{bucketId}
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "name": "documents",
+  "s3BucketId": "a1b2c3d4-documents-e5f6g7h8",
   "usedBytes": 1048576,
   "quotaBytes": 5368709120,
   "fileCount": 5,
@@ -203,7 +205,7 @@ Content-Type: application/json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "name": "my-bucket",
-  "garageBucketId": "appid-my-bucket-uuid",
+  "s3BucketId": "appid-my-bucket-uuid",
   "createdAt": "2024-01-01T00:00:00.000Z"
 }
 ```
@@ -391,7 +393,7 @@ Content-Type: application/json
 **Response:**
 ```json
 {
-  "uploadUrl": "http://localhost:9004/bucket/key?X-Amz-Algorithm=AWS4-HMAC-SHA256&...",
+  "uploadUrl": "http://localhost:9000/bucket/key?X-Amz-Algorithm=AWS4-HMAC-SHA256&...",
   "uploadId": "550e8400-e29b-41d4-a716-446655440000",
   "key": "2024/01/01/uuid.pdf",
   "expiresAt": "2024-01-01T01:00:00.000Z",
@@ -409,7 +411,7 @@ Upload your file directly to the returned `uploadUrl`:
 curl -X PUT \
   -H "Content-Type: application/pdf" \
   --data-binary @document.pdf \
-  "http://localhost:9004/bucket/key?X-Amz-Algorithm=..."
+  "http://localhost:9000/bucket/key?X-Amz-Algorithm=..."
 ```
 
 #### Step 3: Confirm Upload
@@ -443,7 +445,7 @@ GET /buckets/{bucketId}/files/{fileId}/download?expiresIn=3600
 **Response:**
 ```json
 {
-  "url": "http://localhost:9004/bucket/key?X-Amz-Algorithm=AWS4-HMAC-SHA256&...",
+  "url": "http://localhost:9000/bucket/key?X-Amz-Algorithm=AWS4-HMAC-SHA256&...",
   "expiresAt": "2024-01-01T01:00:00.000Z"
 }
 ```
@@ -1098,7 +1100,7 @@ Receive real-time notifications when events occur in your storage.
 | `file.downloaded` | File download URL was generated | `{fileId, key, bucket, downloadCount}` |
 | `file.copied` | File was copied | `{sourceFileId, newFileId, sourceBucket, targetBucket}` |
 | `file.moved` | File was moved | `{fileId, fromBucket, toBucket, newKey}` |
-| `bucket.created` | Bucket was created | `{bucketId, name, garageBucketId}` |
+| `bucket.created` | Bucket was created | `{bucketId, name, s3BucketId}` |
 | `bucket.deleted` | Bucket was deleted | `{bucketId, name}` |
 | `bucket.reassigned` | Bucket reassigned to different app | `{bucketId, bucketName, fromApplicationId, toApplicationId, action}` |
 | `share.created` | Share link was created | `{shareId, fileId, fileName, expiresAt, shareUrl}` |
@@ -1175,12 +1177,29 @@ GET /analytics/overview
 **Response:**
 ```json
 {
-  "totalStorage": 10737418240,
-  "usedStorage": 2147483648,
-  "availableStorage": 8589934592,
-  "bucketCount": 5,
-  "fileCount": 150,
-  "storagePercentage": 20.0
+  "totalStorage": {
+    "usedBytes": 2147483648,
+    "quotaBytes": 10737418240,
+    "percentage": 20.0
+  },
+  "files": {
+    "total": 150,
+    "uploadedToday": 5,
+    "uploadedThisMonth": 42
+  },
+  "downloads": {
+    "today": 12,
+    "thisMonth": 230
+  },
+  "applications": 3,
+  "buckets": 5,
+  "topBuckets": [
+    {
+      "name": "documents",
+      "usedBytes": 1073741824,
+      "fileCount": 80
+    }
+  ]
 }
 ```
 

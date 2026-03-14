@@ -19,7 +19,7 @@ describe('SharesService', () => {
   const mockBucket = {
     id: 'bucket-1',
     applicationId: 'app-1',
-    garageBucketId: 'garage-bucket-1',
+    s3BucketId: 'garage-bucket-1',
   };
 
   const mockFile = {

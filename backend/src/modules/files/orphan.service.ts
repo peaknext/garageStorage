@@ -9,7 +9,7 @@ export interface DbOrphan {
   key: string;
   bucketId: string;
   bucketName: string;
-  garageBucketId: string;
+  s3BucketId: string;
   sizeBytes: number;
   createdAt: Date;
   originalName: string;
@@ -20,7 +20,7 @@ export interface S3Orphan {
   key: string;
   bucketId: string;
   bucketName: string;
-  garageBucketId: string;
+  s3BucketId: string;
   sizeBytes: number;
   lastModified: Date;
 }
@@ -102,7 +102,7 @@ export class OrphanService {
 
         do {
           const result = await this.s3.listFiles(
-            bucket.garageBucketId,
+            bucket.s3BucketId,
             undefined,
             1000,
             continuationToken,
@@ -128,7 +128,7 @@ export class OrphanService {
               key,
               bucketId: bucket.id,
               bucketName: bucket.name,
-              garageBucketId: bucket.garageBucketId,
+              s3BucketId: bucket.s3BucketId,
               sizeBytes,
               createdAt: file.createdAt,
               originalName: file.originalName,
@@ -168,7 +168,7 @@ export class OrphanService {
                 key,
                 bucketId: bucket.id,
                 bucketName: bucket.name,
-                garageBucketId: bucket.garageBucketId,
+                s3BucketId: bucket.s3BucketId,
                 sizeBytes: s3File.size,
                 lastModified: s3File.lastModified,
               });
@@ -181,7 +181,7 @@ export class OrphanService {
             key,
             bucketId: bucket.id,
             bucketName: bucket.name,
-            garageBucketId: bucket.garageBucketId,
+            s3BucketId: bucket.s3BucketId,
             sizeBytes: s3File.size,
             lastModified: s3File.lastModified,
           });
@@ -250,7 +250,7 @@ export class OrphanService {
 
           // Verify it's actually an orphan (not in S3)
           const existsInS3 = await this.s3.fileExists(
-            file.bucket.garageBucketId,
+            file.bucket.s3BucketId,
             file.key,
           );
 
@@ -339,7 +339,7 @@ export class OrphanService {
    * Cleanup orphan S3 files (files in S3 but not in DB)
    */
   async cleanupS3Orphans(
-    orphans?: Array<{ key: string; garageBucketId: string }>,
+    orphans?: Array<{ key: string; s3BucketId: string }>,
     bucketId?: string,
   ): Promise<CleanupResult> {
     this.logger.log('Starting S3 orphan cleanup');
@@ -351,7 +351,7 @@ export class OrphanService {
       errors: [],
     };
 
-    let orphansToClean: Array<{ key: string; garageBucketId: string; sizeBytes: number }>;
+    let orphansToClean: Array<{ key: string; s3BucketId: string; sizeBytes: number }>;
 
     if (orphans && orphans.length > 0) {
       // Clean specific orphans
@@ -359,7 +359,7 @@ export class OrphanService {
       for (const orphan of orphans) {
         try {
           const metadata = await this.s3.getFileMetadata(
-            orphan.garageBucketId,
+            orphan.s3BucketId,
             orphan.key,
           );
           orphansToClean.push({
@@ -376,14 +376,14 @@ export class OrphanService {
       const scanResult = await this.scanForOrphans(bucketId);
       orphansToClean = scanResult.s3Orphans.map((o) => ({
         key: o.key,
-        garageBucketId: o.garageBucketId,
+        s3BucketId: o.s3BucketId,
         sizeBytes: o.sizeBytes,
       }));
     }
 
     for (const orphan of orphansToClean) {
       try {
-        await this.s3.deleteFile(orphan.garageBucketId, orphan.key);
+        await this.s3.deleteFile(orphan.s3BucketId, orphan.key);
         result.deletedS3Files++;
         result.freedBytes += orphan.sizeBytes;
       } catch (error) {

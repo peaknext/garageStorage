@@ -62,7 +62,9 @@ export class PoliciesService {
   }
 
   async findAll(query: { page?: number; limit?: number; scope?: PolicyScope; policyType?: PolicyType }) {
-    const { page = 1, limit = 50, scope, policyType } = query;
+    const { scope, policyType } = query;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 50;
 
     const where: Prisma.StoragePolicyWhereInput = {};
     if (scope) where.scope = scope;

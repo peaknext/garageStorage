@@ -227,9 +227,9 @@ export class AdminFilesController {
   }
 
   @Post('sync')
-  @ApiOperation({ summary: 'Sync files from Garage S3 to database (Admin)' })
-  async syncFilesFromGarage(@Param('bucketId') bucketId: string) {
-    return this.filesService.syncFilesFromGarage(bucketId);
+  @ApiOperation({ summary: 'Sync files from S3 to database (Admin)' })
+  async syncFilesFromS3(@Param('bucketId') bucketId: string) {
+    return this.filesService.syncFilesFromS3(bucketId);
   }
 
   @Post('scan-duplicates')

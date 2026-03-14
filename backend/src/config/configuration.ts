@@ -24,18 +24,15 @@ export default () => {
     port: parseInt(process.env.REDIS_PORT || String(parsedRedisPort), 10),
     password: process.env.REDIS_PASSWORD || parsedRedisPassword,
   },
-  garage: {
-    endpoint: process.env.GARAGE_ENDPOINT || 'http://localhost:9004',
+  s3: {
+    endpoint: process.env.S3_ENDPOINT || 'http://localhost:9000',
     publicEndpoint:
-      process.env.GARAGE_PUBLIC_ENDPOINT ||
-      process.env.GARAGE_ENDPOINT ||
-      'http://localhost:9004',
-    adminEndpoint:
-      process.env.GARAGE_ADMIN_ENDPOINT || 'http://localhost:3903',
-    adminToken: process.env.GARAGE_ADMIN_TOKEN,
-    region: process.env.GARAGE_REGION || 'garage',
-    accessKey: process.env.GARAGE_ACCESS_KEY,
-    secretKey: process.env.GARAGE_SECRET_KEY,
+      process.env.S3_PUBLIC_ENDPOINT ||
+      process.env.S3_ENDPOINT ||
+      'http://localhost:9000',
+    region: process.env.S3_REGION || 'us-east-1',
+    accessKey: process.env.S3_ACCESS_KEY,
+    secretKey: process.env.S3_SECRET_KEY,
   },
   jwt: {
     secret: process.env.JWT_SECRET || 'default-secret-change-me',

@@ -144,13 +144,13 @@ export class FilesController {
     @CurrentApp() app: { id: string },
     @Param('bucketId') bucketId: string,
     @Param('fileId') fileId: string,
-    @Query('expiresIn') expiresIn?: number,
+    @Query('expiresIn') expiresIn?: string,
   ) {
     return this.filesService.getDownloadUrl(
       app.id,
       bucketId,
       fileId,
-      expiresIn,
+      expiresIn ? parseInt(expiresIn, 10) : undefined,
     );
   }
 

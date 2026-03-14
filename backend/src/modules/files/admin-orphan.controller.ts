@@ -107,7 +107,7 @@ export class AdminOrphanController {
             type: 'object',
             properties: {
               key: { type: 'string' },
-              garageBucketId: { type: 'string' },
+              s3BucketId: { type: 'string' },
             },
           },
           description: 'Optional list of specific orphans to cleanup',
@@ -120,7 +120,7 @@ export class AdminOrphanController {
     },
   })
   async cleanupS3Orphans(
-    @Body('orphans') orphans?: Array<{ key: string; garageBucketId: string }>,
+    @Body('orphans') orphans?: Array<{ key: string; s3BucketId: string }>,
     @Body('bucketId') bucketId?: string,
   ): Promise<CleanupResult> {
     return this.orphanService.cleanupS3Orphans(orphans, bucketId);

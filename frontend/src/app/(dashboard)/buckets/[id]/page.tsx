@@ -46,7 +46,7 @@ import { formatDistanceToNow } from "date-fns";
 interface Bucket {
   id: string;
   name: string;
-  garageBucketId: string;
+  s3BucketId: string;
   applicationId: string;
   usedBytes: number;
   quotaBytes: number | null;
@@ -422,7 +422,7 @@ export default function BucketDetailPage() {
       if (data.synced > 0) {
         toast({
           title: "Files Synced",
-          description: `Synced ${data.synced} file(s) from Garage S3`,
+          description: `Synced ${data.synced} file(s) from S3`,
           variant: "success",
         });
       } else {
@@ -659,17 +659,17 @@ export default function BucketDetailPage() {
               </div>
             </div>
 
-            {/* Garage Bucket ID */}
+            {/* S3 Bucket ID */}
             <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
               <p className="text-sm font-medium text-[#c4bbd3] mb-2">
-                Garage Bucket ID
+                S3 Bucket ID
               </p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 text-sm font-mono text-white bg-black/20 px-3 py-2 rounded-lg overflow-x-auto">
-                  {bucket.garageBucketId}
+                  {bucket.s3BucketId}
                 </code>
                 <button
-                  onClick={() => copyToClipboard(bucket.garageBucketId)}
+                  onClick={() => copyToClipboard(bucket.s3BucketId)}
                   className="p-2 rounded-lg hover:bg-white/[0.05] transition-colors"
                   title="Copy to clipboard"
                 >
