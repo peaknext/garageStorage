@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { AlertDialog } from '@/components/ui/alert-dialog';
 import { apiClient } from '@/lib/api-client';
-import { formatDate } from '@/lib/utils';
+import { formatDate, copyToClipboard } from '@/lib/utils';
 import {
   Link2,
   Search,
@@ -88,7 +88,7 @@ export default function SharesPage() {
   });
 
   const copyLink = (url: string, id: string) => {
-    navigator.clipboard.writeText(url);
+    copyToClipboard(url);
     setCopied(id);
     setTimeout(() => setCopied(null), 2000);
   };

@@ -70,6 +70,9 @@ deploy/*.zip
 # Generated Garage config (from envsubst)
 garage/garage.active.toml
 
+# Claude Code instructions (local only)
+CLAUDE.md
+
 # Misc
 .cache/
 tmp/

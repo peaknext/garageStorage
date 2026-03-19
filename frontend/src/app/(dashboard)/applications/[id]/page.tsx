@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { apiClient } from '@/lib/api-client';
-import { formatBytes, formatDate } from '@/lib/utils';
+import { formatBytes, formatDate, copyToClipboard } from '@/lib/utils';
 import {
   ArrowLeft,
   AppWindow,
@@ -28,6 +28,8 @@ import {
   Lock,
   Webhook,
   ChevronRight,
+  Code,
+  Terminal,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -61,12 +63,23 @@ export default function ApplicationDetailPage() {
   const [newApiKey, setNewApiKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [copiedBucketId, setCopiedBucketId] = useState<string | null>(null);
+  const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+
+  const apiBaseUrl = typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:9001/api/v1`
+    : 'http://localhost:9001/api/v1';
+
+  const copySnippet = (text: string, id: string) => {
+    copyToClipboard(text);
+    setCopiedSnippet(id);
+    setTimeout(() => setCopiedSnippet(null), 2000);
+  };
 
   const copyBucketId = (e: React.MouseEvent, bucketId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    navigator.clipboard.writeText(bucketId);
+    copyToClipboard(bucketId);
     setCopiedBucketId(bucketId);
     setTimeout(() => setCopiedBucketId(null), 2000);
   };
@@ -121,7 +134,7 @@ export default function ApplicationDetailPage() {
 
   const copyApiKey = () => {
     if (newApiKey) {
-      navigator.clipboard.writeText(newApiKey);
+      copyToClipboard(newApiKey);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -270,6 +283,176 @@ export default function ApplicationDetailPage() {
               </Button>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* API Quick Start */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 border border-white/[0.08]">
+              <Code className="h-5 w-5 text-emerald-400" />
+            </div>
+            <div>
+              <CardTitle>API Quick Start</CardTitle>
+              <CardDescription>Connect your application to the Storage API</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Base URL */}
+          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+            <p className="text-sm font-medium text-[#c4bbd3] mb-2">Base URL</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-sm font-mono text-emerald-400 bg-black/30 px-3 py-2 rounded-lg">
+                {apiBaseUrl}
+              </code>
+              <button
+                onClick={() => copySnippet(apiBaseUrl, 'base-url')}
+                className="p-2 rounded-lg hover:bg-white/[0.05] transition-colors"
+                title="Copy"
+              >
+                {copiedSnippet === 'base-url' ? (
+                  <Check className="h-4 w-4 text-emerald-400" />
+                ) : (
+                  <Copy className="h-4 w-4 text-[#c4bbd3]" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Auth Header */}
+          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+            <p className="text-sm font-medium text-[#c4bbd3] mb-2">Authentication Header</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-sm font-mono text-white bg-black/30 px-3 py-2 rounded-lg">
+                X-API-Key: {'<your-api-key>'}
+              </code>
+            </div>
+          </div>
+
+          {/* Example: List Buckets */}
+          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-medium text-[#c4bbd3] flex items-center gap-2">
+                <Terminal className="h-3.5 w-3.5" />
+                List Buckets
+              </p>
+              <button
+                onClick={() => copySnippet(
+                  `curl -H "X-API-Key: YOUR_API_KEY" ${apiBaseUrl}/buckets`,
+                  'list-buckets'
+                )}
+                className="p-1.5 rounded-lg hover:bg-white/[0.05] transition-colors"
+                title="Copy"
+              >
+                {copiedSnippet === 'list-buckets' ? (
+                  <Check className="h-3.5 w-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5 text-[#c4bbd3]" />
+                )}
+              </button>
+            </div>
+            <code className="block text-xs font-mono text-[#c4bbd3] bg-black/30 px-3 py-2 rounded-lg overflow-x-auto">
+              curl -H &quot;X-API-Key: YOUR_API_KEY&quot; {apiBaseUrl}/buckets
+            </code>
+          </div>
+
+          {/* Example: Upload File */}
+          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-medium text-[#c4bbd3] flex items-center gap-2">
+                <Terminal className="h-3.5 w-3.5" />
+                Upload File
+              </p>
+              <button
+                onClick={() => copySnippet(
+                  `curl -X POST -H "X-API-Key: YOUR_API_KEY" -F "file=@./photo.jpg" ${apiBaseUrl}/buckets/BUCKET_ID/files`,
+                  'upload-file'
+                )}
+                className="p-1.5 rounded-lg hover:bg-white/[0.05] transition-colors"
+                title="Copy"
+              >
+                {copiedSnippet === 'upload-file' ? (
+                  <Check className="h-3.5 w-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5 text-[#c4bbd3]" />
+                )}
+              </button>
+            </div>
+            <code className="block text-xs font-mono text-[#c4bbd3] bg-black/30 px-3 py-2 rounded-lg overflow-x-auto whitespace-pre-wrap">
+              curl -X POST -H &quot;X-API-Key: YOUR_API_KEY&quot; \{'\n'}     -F &quot;file=@./photo.jpg&quot; \{'\n'}     {apiBaseUrl}/buckets/BUCKET_ID/files
+            </code>
+          </div>
+
+          {/* Example: Download File */}
+          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-medium text-[#c4bbd3] flex items-center gap-2">
+                <Terminal className="h-3.5 w-3.5" />
+                Download File
+              </p>
+              <button
+                onClick={() => copySnippet(
+                  `curl -H "X-API-Key: YOUR_API_KEY" ${apiBaseUrl}/buckets/BUCKET_ID/files/FILE_ID`,
+                  'download-file'
+                )}
+                className="p-1.5 rounded-lg hover:bg-white/[0.05] transition-colors"
+                title="Copy"
+              >
+                {copiedSnippet === 'download-file' ? (
+                  <Check className="h-3.5 w-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5 text-[#c4bbd3]" />
+                )}
+              </button>
+            </div>
+            <code className="block text-xs font-mono text-[#c4bbd3] bg-black/30 px-3 py-2 rounded-lg overflow-x-auto">
+              curl -H &quot;X-API-Key: YOUR_API_KEY&quot; {apiBaseUrl}/buckets/BUCKET_ID/files/FILE_ID
+            </code>
+          </div>
+
+          {/* Available Endpoints Summary */}
+          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+            <p className="text-sm font-medium text-[#c4bbd3] mb-3">Available Endpoints</p>
+            <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+              <div className="flex items-center gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">GET</span>
+                <span className="text-[#c4bbd3]">/buckets</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400">POST</span>
+                <span className="text-[#c4bbd3]">/buckets</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">GET</span>
+                <span className="text-[#c4bbd3]">/buckets/:id/files</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400">POST</span>
+                <span className="text-[#c4bbd3]">/buckets/:id/files</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400">POST</span>
+                <span className="text-[#c4bbd3]">/files/search</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">GET</span>
+                <span className="text-[#c4bbd3]">/tags</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">GET</span>
+                <span className="text-[#c4bbd3]">/recycle-bin</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">GET</span>
+                <span className="text-[#c4bbd3]">/files/:id/shares</span>
+              </div>
+            </div>
+            <p className="text-xs text-[#c4bbd3]/50 mt-3">
+              Full API docs at <code className="text-[#c4bbd3]/70">{apiBaseUrl.replace('/api/v1', '')}/api/docs</code>
+            </p>
+          </div>
         </CardContent>
       </Card>
 

@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { apiClient } from "@/lib/api-client";
-import { formatBytes, formatDate } from "@/lib/utils";
+import { formatBytes, formatDate, copyToClipboard as copyText } from "@/lib/utils";
 import {
   ArrowLeft,
   FolderOpen,
@@ -148,8 +148,8 @@ export default function BucketDetailPage() {
     setPage(1);
   }, [currentFolderId]);
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
+  const handleCopy = (text: string) => {
+    copyText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -669,7 +669,7 @@ export default function BucketDetailPage() {
                   {bucket.s3BucketId}
                 </code>
                 <button
-                  onClick={() => copyToClipboard(bucket.s3BucketId)}
+                  onClick={() => handleCopy(bucket.s3BucketId)}
                   className="p-2 rounded-lg hover:bg-white/[0.05] transition-colors"
                   title="Copy to clipboard"
                 >

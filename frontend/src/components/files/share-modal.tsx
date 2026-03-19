@@ -12,7 +12,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { apiClient } from '@/lib/api-client';
-import { formatDate } from '@/lib/utils';
+import { formatDate, copyToClipboard } from '@/lib/utils';
 import {
   X,
   Link2,
@@ -97,7 +97,7 @@ export function ShareModal({ fileId, fileName, onClose }: ShareModalProps) {
   });
 
   const copyLink = (url: string, id: string) => {
-    navigator.clipboard.writeText(url);
+    copyToClipboard(url);
     setCopied(id);
     setTimeout(() => setCopied(null), 2000);
   };

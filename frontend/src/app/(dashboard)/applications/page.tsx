@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { apiClient } from '@/lib/api-client';
-import { formatBytes, formatDate } from '@/lib/utils';
+import { formatBytes, formatDate, copyToClipboard } from '@/lib/utils';
 import { Plus, Search, Copy, AppWindow, Key, CheckCircle } from 'lucide-react';
 
 interface Application {
@@ -63,7 +63,7 @@ export default function ApplicationsPage() {
   };
 
   const copyApiKey = () => {
-    navigator.clipboard.writeText(createdApiKey);
+    copyToClipboard(createdApiKey);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

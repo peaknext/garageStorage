@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/card';
 import { AlertDialog } from '@/components/ui/alert-dialog';
 import { apiClient } from '@/lib/api-client';
+import { copyToClipboard } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
   Tag,
@@ -380,13 +381,13 @@ export default function TagsPage() {
                                   <span className="text-white font-medium">{tag.name}</span>
                                   <button
                                     onClick={() => {
-                                      navigator.clipboard.writeText(tag.id);
+                                      copyToClipboard(tag.id);
                                       toast({ title: 'Tag ID copied', variant: 'success' });
                                     }}
-                                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.05] hover:bg-white/[0.1] transition-colors group"
+                                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.05] hover:bg-white/[0.1] transition-colors group select-all"
                                     title="Click to copy Tag ID"
                                   >
-                                    <span className="text-xs font-mono text-[#c4bbd3]/60 truncate max-w-[140px]">{tag.id}</span>
+                                    <span className="text-xs font-mono text-[#c4bbd3]/60">{tag.id}</span>
                                     <Copy className="h-3 w-3 text-[#c4bbd3]/40 group-hover:text-[#c4bbd3] flex-shrink-0" />
                                   </button>
                                   <span className="flex items-center gap-1 text-sm text-[#c4bbd3] flex-shrink-0">
