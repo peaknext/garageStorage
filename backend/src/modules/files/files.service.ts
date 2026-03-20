@@ -191,6 +191,12 @@ export class FilesService {
     file: Express.Multer.File,
     dto: { key?: string; metadata?: Record<string, string>; isPublic?: boolean },
   ) {
+    if (!file) {
+      throw new BadRequestException(
+        'No file provided. Send multipart/form-data with a "file" field.',
+      );
+    }
+
     const maxSize = 10 * 1024 * 1024;
     if (file.size > maxSize) {
       throw new BadRequestException(
