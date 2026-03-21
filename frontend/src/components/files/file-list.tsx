@@ -567,8 +567,8 @@ export function FileList({ files, bucketId, applicationId, isLoading, onShare, f
                 </div>
 
                 <div className="flex items-center gap-3 min-w-0">
-                  {/* Show thumbnail for images, otherwise show icon - clickable to preview */}
-                  {file.mimeType.startsWith('image/') && file.thumbnailUrl ? (
+                  {/* Show thumbnail if available (images + documents), otherwise show icon */}
+                  {file.thumbnailUrl && file.thumbnailStatus === 'GENERATED' ? (
                     <button
                       onClick={() => setPreviewFile(file)}
                       className="relative h-10 w-10 flex-shrink-0 rounded-lg overflow-hidden bg-white/[0.05] border border-white/[0.1] hover:border-[#ee4f27]/50 hover:ring-2 hover:ring-[#ee4f27]/20 transition-all cursor-pointer"
