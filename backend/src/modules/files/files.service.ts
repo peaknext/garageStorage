@@ -173,13 +173,11 @@ export class FilesService {
       size: s3Metadata.contentLength,
     });
 
-    // Queue thumbnail generation for images
-    if (upload.contentType.startsWith('image/')) {
-      try {
-        await this.processing.generateThumbnail(file.id);
-      } catch (error) {
-        this.logger.warn(`Failed to queue thumbnail for ${file.id}: ${(error as Error).message}`);
-      }
+    // Queue thumbnail generation (images + documents)
+    try {
+      await this.processing.generateThumbnail(file.id);
+    } catch (error) {
+      this.logger.warn(`Failed to queue thumbnail for ${file.id}: ${(error as Error).message}`);
     }
 
     return this.formatFileResponse(file, bucket.s3BucketId);
@@ -241,13 +239,11 @@ export class FilesService {
       size: file.size,
     });
 
-    // Queue thumbnail generation for images
-    if (file.mimetype.startsWith('image/')) {
-      try {
-        await this.processing.generateThumbnail(fileRecord.id);
-      } catch (error) {
-        this.logger.warn(`Failed to queue thumbnail for ${fileRecord.id}: ${(error as Error).message}`);
-      }
+    // Queue thumbnail generation (images + documents)
+    try {
+      await this.processing.generateThumbnail(fileRecord.id);
+    } catch (error) {
+      this.logger.warn(`Failed to queue thumbnail for ${fileRecord.id}: ${(error as Error).message}`);
     }
 
     return this.formatFileResponse(fileRecord, bucket.s3BucketId);
@@ -1314,12 +1310,8 @@ export class FilesService {
       throw new NotFoundException('Bucket not found');
     }
 
-    // Check if file is an image
-    if (!file.mimeType.startsWith('image/')) {
-      throw new BadRequestException('Thumbnail generation only available for images');
-    }
-
     // Use ProcessingService to queue thumbnail generation
+    // (ProcessingService handles unsupported types by marking NOT_APPLICABLE)
     return this.processing.generateThumbnail(fileId);
   }
 }

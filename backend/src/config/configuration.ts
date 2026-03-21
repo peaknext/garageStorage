@@ -65,6 +65,9 @@ export default () => {
     },
     maxImageSizeMb: parseInt(process.env.MAX_IMAGE_PROCESS_SIZE_MB || '50', 10),
     thumbnailPrefix: '_thumbnails/',
+    libreOfficePath: process.env.LIBREOFFICE_PATH || 'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
+    tempDir: process.env.PROCESSING_TEMP_DIR || '',
+    documentThumbnailEnabled: process.env.DOCUMENT_THUMBNAIL_ENABLED !== 'false',
   },
   // Audit configuration
   audit: {

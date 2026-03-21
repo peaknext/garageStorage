@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { S3Service } from '../../services/s3/s3.service';
 import { ThumbnailStatus } from '@prisma/client';
+import { DOCUMENT_MIME_TYPES } from './utils/document-converter';
 
 export interface ThumbnailOptions {
   width?: number;
@@ -37,13 +38,13 @@ export class ProcessingService {
       throw new NotFoundException('File not found');
     }
 
-    // Check if it's an image
-    if (!this.isImageMimeType(file.mimeType)) {
+    // Check if thumbnail generation is supported for this file type
+    if (!this.isThumbnailSupported(file.mimeType)) {
       await this.prisma.file.update({
         where: { id: fileId },
         data: { thumbnailStatus: ThumbnailStatus.NOT_APPLICABLE },
       });
-      return { status: 'not_applicable', message: 'File is not an image' };
+      return { status: 'not_applicable', message: 'File type does not support thumbnails' };
     }
 
     // Skip if file is itself a thumbnail or system file
@@ -149,7 +150,10 @@ export class ProcessingService {
     const files = await this.prisma.file.findMany({
       where: {
         bucketId,
-        mimeType: { startsWith: 'image/' },
+        OR: [
+          { mimeType: { startsWith: 'image/' } },
+          { mimeType: { in: DOCUMENT_MIME_TYPES } },
+        ],
       },
       select: { id: true },
     });
@@ -167,6 +171,10 @@ export class ProcessingService {
     return ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp'].includes(
       mimeType,
     );
+  }
+
+  private isThumbnailSupported(mimeType: string): boolean {
+    return this.isImageMimeType(mimeType) || DOCUMENT_MIME_TYPES.includes(mimeType);
   }
 
   private getThumbnailStatusMessage(status: ThumbnailStatus): string {
